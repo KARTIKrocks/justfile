@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    capabilitiesFor,
     comparableFromDump,
     comparableFromParser,
     dumpWithJust,
@@ -21,6 +22,8 @@ import {
 
 const fixtures = loadFixtures();
 const installed = justVersion();
+// Only compare fields this version of just actually reports.
+const caps = capabilitiesFor(installed);
 
 /** The floor the extension declares support for. */
 const MINIMUM_SUPPORTED = "1.27.0";
@@ -44,8 +47,8 @@ describe(`differential against just ${installed}`, () => {
             // bug. Fail loudly rather than silently comparing nothing.
             expect(dump.ok, `just rejected ${fixture.name}:\n${dump.stderr ?? ""}`).toBe(true);
 
-            const fromJust = comparableFromDump(dump.json);
-            const fromUs = comparableFromParser(fixture.source);
+            const fromJust = comparableFromDump(dump.json, caps);
+            const fromUs = comparableFromParser(fixture.source, caps);
 
             expect(fromUs).toEqual(fromJust);
         });
@@ -66,7 +69,7 @@ describe("parser totality over fixtures", () => {
     for (const fixture of fixtures) {
         it(`survives every truncation of ${fixture.name}`, () => {
             for (const prefix of truncations(fixture)) {
-                expect(() => comparableFromParser(prefix)).not.toThrow();
+                expect(() => comparableFromParser(prefix, caps)).not.toThrow();
             }
         });
     }

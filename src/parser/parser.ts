@@ -40,6 +40,13 @@ import { type Span, StringStyle, type Token, TokenKind } from "./token.js";
 
 const EMPTY_SPAN: Span = { offset: 0, length: 0, line: 0, column: 0 };
 
+/**
+ * Cap on expression nesting, to keep the recursive descent off the call stack
+ * limit. Hand-written Justfiles nest a handful of levels deep at most; this is
+ * far above anything real and far below where Node overflows.
+ */
+const MAX_EXPRESSION_DEPTH = 128;
+
 /** Keywords that introduce an item. Not reserved words — `set` can be a recipe name. */
 const KEYWORD = {
     set: "set",
@@ -65,6 +72,8 @@ class Parser {
     private readonly tokens: readonly Token[];
     private readonly errors: ParseError[] = [];
     private index = 0;
+    /** Current expression nesting depth, bounded by MAX_EXPRESSION_DEPTH. */
+    private depth = 0;
     /** Comment lines seen since the last item, used for doc comments. */
     private pendingDoc: string[] = [];
 
@@ -581,11 +590,34 @@ class Parser {
 
     // -- expressions --------------------------------------------------------
 
+    /**
+     * Every recursive path through the expression grammar passes through here —
+     * conditionals, brace blocks, parenthesised groups, call arguments — so
+     * bounding this one function bounds the whole descent.
+     *
+     * Without the bound, a deeply nested expression exhausts the JavaScript call
+     * stack and the `RangeError` escapes, breaking the promise that `parse`
+     * returns a `Justfile` for any input. A file nested past this limit is not
+     * something a person wrote by hand, and `just` itself rejects it, so cutting
+     * the expression off costs nothing real and keeps the parser total.
+     */
     private parseExpression(): Expression {
-        if (this.atKeyword(KEYWORD.if)) {
-            return this.parseConditional();
+        if (this.depth >= MAX_EXPRESSION_DEPTH) {
+            const token = this.peek();
+            this.error("expression nested too deeply", token.span);
+            // Consume one token so callers cannot spin here.
+            this.advance();
+            return { kind: "error-expression", span: token.span };
         }
-        return this.parseConcat();
+        this.depth++;
+        try {
+            if (this.atKeyword(KEYWORD.if)) {
+                return this.parseConditional();
+            }
+            return this.parseConcat();
+        } finally {
+            this.depth--;
+        }
     }
 
     private parseConditional(): Expression {
