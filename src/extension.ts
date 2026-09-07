@@ -7,6 +7,9 @@
  */
 
 import * as vscode from "vscode";
+import { ParseCache } from "./model/cache.js";
+import { forgetClosedDocuments } from "./providers/documents.js";
+import { registerSemanticTokens } from "./providers/semanticTokens.js";
 
 export function activate(context: vscode.ExtensionContext): void {
     const output = vscode.window.createOutputChannel("Just", { log: true });
@@ -18,6 +21,14 @@ export function activate(context: vscode.ExtensionContext): void {
             String(vscode.workspace.isTrusted),
         ),
     );
+
+    // One parse per document per edit, shared by every Tier 1 feature. Empty at
+    // activation: nothing is parsed until a provider is actually asked.
+    const cache = new ParseCache();
+    forgetClosedDocuments(context, cache);
+
+    // Registering a provider does not run it, so this stays within the budget.
+    registerSemanticTokens(context, cache);
 
     // Trust can be granted mid-session, so it is read at call time rather than
     // captured here. This listener exists to light up Tier 2 when that happens.
