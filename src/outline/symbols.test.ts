@@ -21,6 +21,22 @@ function covered(source: string, range: { offset: number; length: number }): str
     return source.slice(range.offset, range.offset + range.length);
 }
 
+const BUSY = `set shell := ["bash"]
+import "shared.just"
+
+version := "1"
+
+[group('Build')]
+compile:
+    echo c
+
+serve:
+    echo s
+
+mod docs "docs/justfile"
+alias c := compile
+`;
+
 describe("variables", () => {
     it("gathers assignments under one heading", () => {
         const symbols = outlineOf('version := "1"\nenvironment := "dev"\n');
@@ -196,22 +212,6 @@ describe("the other items", () => {
 });
 
 describe("ordering and shape", () => {
-    const BUSY = `set shell := ["bash"]
-import "shared.just"
-
-version := "1"
-
-[group('Build')]
-compile:
-    echo c
-
-serve:
-    echo s
-
-mod docs "docs/justfile"
-alias c := compile
-`;
-
     it("reads in source order", () => {
         // VS Code can re-sort by name if the user asks; it cannot recover
         // position once we have thrown it away.
@@ -255,63 +255,93 @@ alias c := compile
     });
 });
 
-describe("headings do not reach over unrelated items", () => {
-    // Grouping is by attribute, so members need not sit next to each other.
-    // VS Code answers "which symbol is the cursor in" by descending into the
-    // first symbol whose range contains the position, so a heading stretching
-    // over an item that is not under it makes the breadcrumb name the wrong
-    // thing entirely.
+describe("headings and the ranges VS Code needs", () => {
+    // Two properties have to hold together. VS Code answers "which symbol is
+    // the cursor in" by descending into the first symbol whose range contains
+    // the position, so a heading covering an item that is not its own names the
+    // wrong thing — and a child outside its own parent can never be reached.
     const encloses = (outer: OutlineSymbol, inner: OutlineSymbol): boolean =>
         inner.range.offset >= outer.range.offset &&
         inner.range.offset + inner.range.length <= outer.range.offset + outer.range.length;
 
-    const noHeadingEnclosesASibling = (source: string): void => {
+    const check = (source: string): OutlineSymbol[] => {
         const symbols = outlineOf(source);
-        for (const heading of symbols.filter((s) => s.children.length > 0)) {
+        for (const symbol of symbols) {
             for (const other of symbols) {
-                if (other !== heading) {
-                    expect(encloses(heading, other), `${heading.name} encloses ${other.name}`).toBe(
+                if (other !== symbol) {
+                    expect(encloses(symbol, other), `${symbol.name} encloses ${other.name}`).toBe(
                         false,
                     );
                 }
             }
+            for (const child of symbol.children) {
+                expect(encloses(symbol, child), `${child.name} is outside ${symbol.name}`).toBe(
+                    true,
+                );
+            }
         }
+        return symbols;
     };
 
-    it("cuts a heading short at an assignment interleaved with recipes", () => {
-        noHeadingEnclosesASibling('a := "1"\n\nbuild:\n    echo b\n\nb := "2"\n');
+    const SCATTERED_VARIABLES = 'a := "1"\n\nbuild:\n    echo b\n\nb := "2"\n';
+    const SCATTERED_GROUP =
+        "[group('g')]\none:\n    echo 1\n\ntwo:\n    echo 2\n\n[group('g')]\nthree:\n    echo 3\n";
+
+    it("holds both properties when assignments are interleaved with recipes", () => {
+        check(SCATTERED_VARIABLES);
     });
 
-    it("cuts a heading short at a recipe interleaved with a group", () => {
-        noHeadingEnclosesASibling(
-            "[group('g')]\none:\n    echo 1\n\ntwo:\n    echo 2\n\n[group('g')]\nthree:\n    echo 3\n",
-        );
+    it("holds both properties when a group is interleaved with a plain recipe", () => {
+        check(SCATTERED_GROUP);
     });
 
-    it("leaves a heading alone when its members are contiguous", () => {
-        // The common shape — settings and variables at the top, then recipes —
-        // must not lose anything to the clamp.
+    it("holds both properties on a busy file", () => {
+        check(BUSY);
+    });
+
+    it("splits a scattered heading rather than stretching or truncating one", () => {
+        // A group written in two places in the file shows in two places in the
+        // outline. One heading covering both runs would swallow what sits
+        // between them; one heading cut short would abandon its later members.
+        const symbols = check(SCATTERED_GROUP);
+        const groups = symbols.filter((s) => s.name === "g");
+        expect(groups).toHaveLength(2);
+        expect(groups.flatMap((g) => g.children.map((c) => c.name))).toEqual(["one", "three"]);
+
+        const variables = check(SCATTERED_VARIABLES).filter((s) => s.name === "Variables");
+        expect(variables).toHaveLength(2);
+        expect(variables.flatMap((v) => v.children.map((c) => c.name))).toEqual(["a", "b"]);
+    });
+
+    it("keeps one heading when the members are contiguous", () => {
+        // The common shape — variables at the top, then recipes — must not be
+        // split into a heading per item.
         const symbols = outlineOf('a := "1"\nb := "2"\n\nbuild:\n    echo b\n');
-        const variables = named(symbols, "Variables");
-        const last = variables.children[variables.children.length - 1];
-        expect(last).toBeDefined();
-        if (last === undefined) {
-            return;
-        }
-        expect(variables.range.offset + variables.range.length).toBeGreaterThanOrEqual(
-            last.range.offset + last.range.length,
-        );
+        const variables = symbols.filter((s) => s.name === "Variables");
+        expect(variables).toHaveLength(1);
+        expect(variables[0]?.children.map((c) => c.name)).toEqual(["a", "b"]);
     });
 
-    it("always keeps its first member", () => {
-        const symbols = outlineOf('a := "1"\n\nbuild:\n    echo b\n\nb := "2"\n');
-        const variables = named(symbols, "Variables");
-        const first = variables.children[0];
-        expect(first).toBeDefined();
-        if (first === undefined) {
-            return;
-        }
-        expect(encloses(variables, first)).toBe(true);
+    it("loses no member to the split", () => {
+        // Splitting must not drop anything: every recipe and assignment the
+        // model knows about still has exactly one leaf in the outline.
+        const leaves = (symbols: readonly OutlineSymbol[]): string[] =>
+            symbols.flatMap((s) =>
+                s.children.length > 0 ? s.children.map((c) => c.name) : [s.name],
+            );
+
+        expect(leaves(outlineOf(SCATTERED_VARIABLES)).sort()).toEqual(["a", "b", "build"]);
+        expect(leaves(outlineOf(SCATTERED_GROUP)).sort()).toEqual(["one", "three", "two"]);
+
+        const model = modelFromSource(BUSY);
+        const expected = [
+            ...model.recipes.map((r) => r.name),
+            ...model.assignments.map((a) => a.name),
+        ].sort();
+        const actual = leaves(outlineOf(BUSY))
+            .filter((name) => expected.includes(name))
+            .sort();
+        expect(actual).toEqual(expected);
     });
 });
 

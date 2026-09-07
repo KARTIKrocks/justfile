@@ -129,6 +129,56 @@ function recipeSymbol(recipe: ModelRecipe): OutlineSymbol {
 }
 
 /**
+ * An item as it will appear, with the headings it belongs under.
+ *
+ * Empty `headings` means the item sits at the top level. A recipe can be under
+ * more than one, because just lets it carry more than one `[group]`.
+ */
+interface Entry {
+    readonly symbol: OutlineSymbol;
+    readonly headings: readonly string[];
+}
+
+/** Keys, not names: a group could be called whatever the Variables heading is. */
+const VARIABLES = "\u0000variables";
+const groupKey = (name: string): string => `\u0000group:${name}`;
+
+/**
+ * A heading per unbroken run of its members, rather than one per heading name.
+ *
+ * Grouping is by attribute, so a group's members need not sit next to each
+ * other. One heading spanning from the first member to the last would enclose
+ * whatever was written in between, and VS Code answers "which symbol is the
+ * cursor in" by descending into the first symbol whose range contains the
+ * position — so the breadcrumb would name a group the cursor is not in.
+ * Clamping the heading instead left the later members outside their own parent,
+ * which VS Code does not expect either.
+ *
+ * Splitting at the break keeps both properties that matter: every child sits
+ * inside its parent, and no heading covers an item that is not its own. A group
+ * written in two places in the file shows up in two places in the outline,
+ * which is what the file says.
+ */
+function headingRuns(entries: readonly Entry[], key: string): OutlineSymbol[][] {
+    const runs: OutlineSymbol[][] = [];
+    let current: OutlineSymbol[] = [];
+    for (const entry of entries) {
+        if (entry.headings.includes(key)) {
+            current.push(entry.symbol);
+            continue;
+        }
+        if (current.length > 0) {
+            runs.push(current);
+            current = [];
+        }
+    }
+    if (current.length > 0) {
+        runs.push(current);
+    }
+    return runs;
+}
+
+/**
  * The outline for a Justfile.
  *
  * Private recipes are included. `just --list` hides them, but this is a
@@ -136,66 +186,40 @@ function recipeSymbol(recipe: ModelRecipe): OutlineSymbol {
  * from the outline is a recipe you cannot find.
  */
 export function outline(model: JustfileModel, labels: OutlineLabels): OutlineSymbol[] {
-    const symbols: OutlineSymbol[] = [];
+    const entries: Entry[] = [];
 
-    if (model.assignments.length > 0) {
-        const children = model.assignments.map(
-            (assignment): OutlineSymbol => ({
+    for (const assignment of model.assignments) {
+        entries.push({
+            symbol: {
                 name: assignment.name,
                 detail: assignment.export ? "export" : "",
                 kind: OutlineKind.Variable,
                 range: rangeOf(assignment.span),
                 selectionRange: rangeOf(assignment.nameSpan),
                 children: [],
-            }),
-        );
-        symbols.push({
-            name: labels.variables,
-            detail: "",
-            kind: OutlineKind.Namespace,
-            range: spanning(children.map((c) => c.range)),
-            selectionRange: spanning(children.map((c) => c.range)),
-            children,
+            },
+            headings: [VARIABLES],
         });
     }
 
-    // A recipe with two `[group]` attributes belongs under both headings, so
-    // this is a fan-out rather than a partition.
-    const grouped = new Map<string, OutlineSymbol[]>();
     for (const recipe of model.recipes) {
-        const names = groupsOfRecipe(recipe);
-        if (names.length === 0) {
-            symbols.push(recipeSymbol(recipe));
-            continue;
-        }
-        for (const name of names) {
-            const bucket = grouped.get(name);
-            if (bucket === undefined) {
-                grouped.set(name, [recipeSymbol(recipe)]);
-            } else {
-                bucket.push(recipeSymbol(recipe));
-            }
-        }
-    }
-    for (const [name, children] of grouped) {
-        symbols.push({
-            name,
-            detail: "",
-            kind: OutlineKind.Namespace,
-            range: spanning(children.map((c) => c.range)),
-            selectionRange: spanning(children.map((c) => c.range)),
-            children,
+        entries.push({
+            symbol: recipeSymbol(recipe),
+            headings: groupsOfRecipe(recipe).map(groupKey),
         });
     }
 
     for (const module of model.modules) {
-        symbols.push({
-            name: module.name,
-            detail: module.path ?? "",
-            kind: OutlineKind.Module,
-            range: rangeOf(module.span),
-            selectionRange: rangeOf(module.nameSpan),
-            children: [],
+        entries.push({
+            symbol: {
+                name: module.name,
+                detail: module.path ?? "",
+                kind: OutlineKind.Module,
+                range: rangeOf(module.span),
+                selectionRange: rangeOf(module.nameSpan),
+                children: [],
+            },
+            headings: [],
         });
     }
 
@@ -206,75 +230,84 @@ export function outline(model: JustfileModel, labels: OutlineLabels): OutlineSym
         if (importation.path === "") {
             continue;
         }
-        symbols.push({
-            name: importation.path,
-            detail: importation.optional ? "optional" : "",
-            kind: OutlineKind.File,
-            range: rangeOf(importation.span),
-            selectionRange: rangeOf(importation.span),
-            children: [],
+        entries.push({
+            symbol: {
+                name: importation.path,
+                detail: importation.optional ? "optional" : "",
+                kind: OutlineKind.File,
+                range: rangeOf(importation.span),
+                selectionRange: rangeOf(importation.span),
+                children: [],
+            },
+            headings: [],
         });
     }
 
     for (const alias of model.aliases) {
-        symbols.push({
-            name: alias.name,
-            detail: `→ ${alias.target}`,
-            kind: OutlineKind.Function,
-            range: rangeOf(alias.span),
-            selectionRange: rangeOf(alias.nameSpan),
-            children: [],
+        entries.push({
+            symbol: {
+                name: alias.name,
+                detail: `\u2192 ${alias.target}`,
+                kind: OutlineKind.Function,
+                range: rangeOf(alias.span),
+                selectionRange: rangeOf(alias.nameSpan),
+                children: [],
+            },
+            headings: [],
         });
     }
 
     for (const setting of model.settings) {
-        symbols.push({
-            name: setting.name,
-            detail: "",
-            kind: OutlineKind.Property,
-            // A setting has no separate name span in the model; the whole line
-            // is close enough to select, and it is one line by construction.
-            range: rangeOf(setting.span),
-            selectionRange: rangeOf(setting.span),
-            children: [],
+        entries.push({
+            symbol: {
+                name: setting.name,
+                detail: "",
+                kind: OutlineKind.Property,
+                // A setting has no separate name span in the model; the whole
+                // line is close enough to select, and it is one line.
+                range: rangeOf(setting.span),
+                selectionRange: rangeOf(setting.span),
+                children: [],
+            },
+            headings: [],
         });
+    }
+
+    // Runs are read off the source order, so sort before splitting them.
+    entries.sort((a, b) => a.symbol.range.offset - b.symbol.range.offset);
+
+    const symbols: OutlineSymbol[] = [];
+    for (const entry of entries) {
+        if (entry.headings.length === 0) {
+            symbols.push(entry.symbol);
+        }
+    }
+
+    const keys: string[] = [];
+    for (const entry of entries) {
+        for (const key of entry.headings) {
+            if (!keys.includes(key)) {
+                keys.push(key);
+            }
+        }
+    }
+    for (const key of keys) {
+        const name = key === VARIABLES ? labels.variables : key.slice(groupKey("").length);
+        for (const children of headingRuns(entries, key)) {
+            const range = spanning(children.map((c) => c.range));
+            symbols.push({
+                name,
+                detail: "",
+                kind: OutlineKind.Namespace,
+                range,
+                selectionRange: range,
+                children,
+            });
+        }
     }
 
     // Source order, so the outline reads like the file. VS Code can re-sort by
     // name if the user prefers; it cannot recover position if we lose it.
     symbols.sort((a, b) => a.range.offset - b.range.offset);
-    return clampHeadings(symbols);
-}
-
-/**
- * Stop a heading's range reaching over items that are not under it.
- *
- * A heading spans its members, but grouping is by attribute and the members
- * need not be next to each other. Interleave an assignment with recipes, or two
- * groups with each other, and a heading ends up enclosing a top-level sibling
- * that is nothing to do with it. VS Code resolves "which symbol is the cursor
- * in" by descending into the first symbol whose range contains the position, so
- * it would answer `Variables` for a cursor sitting in a recipe.
- *
- * Cutting the heading short at the next unrelated item means the answer is
- * sometimes nothing rather than sometimes wrong, which is the trade this
- * codebase makes everywhere else. A heading always keeps its first member,
- * since no sibling can start before that member ends.
- */
-function clampHeadings(symbols: readonly OutlineSymbol[]): OutlineSymbol[] {
-    return symbols.map((symbol, index) => {
-        if (symbol.children.length === 0) {
-            return symbol;
-        }
-        let end = symbol.range.offset + symbol.range.length;
-        for (let other = index + 1; other < symbols.length; other++) {
-            const next = symbols[other];
-            if (next !== undefined && next.range.offset > symbol.range.offset) {
-                end = Math.min(end, next.range.offset);
-                break;
-            }
-        }
-        const range = { offset: symbol.range.offset, length: end - symbol.range.offset };
-        return { ...symbol, range, selectionRange: range };
-    });
+    return symbols;
 }
