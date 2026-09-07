@@ -13,6 +13,36 @@ describe("parser totality", () => {
         }
     });
 
+    it("survives a long else-if chain without exhausting the stack", () => {
+        // `else if` is a flat chain, not nesting. Recursing once per clause
+        // overflowed the stack at 20,000 clauses.
+        for (const n of [10, 5_000, 50_000]) {
+            const chain = `if a == b { x }${" else if c == d { y }".repeat(n)} else { z }`;
+            expect(() => parse(`v := ${chain}`), `chain ${n}`).not.toThrow();
+        }
+    });
+
+    it("does not report a syntax error on a long chain that just accepts", () => {
+        // Verified against just 1.58.0: a 300-clause chain is legal. Spending
+        // the depth budget per clause would squiggle a file just runs happily.
+        const chain = `if a == "1" { "x" }${' else if a == "1" { "y" }'.repeat(300)} else { "z" }`;
+        const ast = parse(`a := "1"\nv := ${chain}\n`);
+        expect(ast.errors).toEqual([]);
+    });
+
+    it("keeps the chain's clauses linked in order", () => {
+        const ast = parse('v := if a == "1" { "x" } else if b == "2" { "y" } else { "z" }\n');
+        const item = ast.items.find((i) => i.kind === "assignment");
+        expect(item?.kind).toBe("assignment");
+        let node = item?.kind === "assignment" ? item.value : undefined;
+        let clauses = 0;
+        while (node?.kind === "conditional") {
+            clauses++;
+            node = node.alternative;
+        }
+        expect(clauses).toBe(2);
+    });
+
     it("bounds nested calls and groups too", () => {
         const calls = `${"f(".repeat(5_000)}x${")".repeat(5_000)}`;
         expect(() => parse(`v := ${calls}`)).not.toThrow();

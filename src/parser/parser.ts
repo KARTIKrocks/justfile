@@ -47,6 +47,21 @@ const EMPTY_SPAN: Span = { offset: 0, length: 0, line: 0, column: 0 };
  */
 const MAX_EXPRESSION_DEPTH = 128;
 
+type ComparisonOperator = "==" | "!=" | "=~";
+
+/**
+ * One `if`/`else if` clause, collected before the chain is folded into nested
+ * conditional nodes. Fields are explicitly `| undefined` rather than optional
+ * so they can be assigned unconditionally under `exactOptionalPropertyTypes`.
+ */
+interface ConditionalClause {
+    readonly start: Span;
+    readonly left: Expression | undefined;
+    readonly operator: ComparisonOperator | undefined;
+    readonly right: Expression | undefined;
+    readonly consequent: Expression | undefined;
+}
+
 /** Keywords that introduce an item. Not reserved words — `set` can be a recipe name. */
 const KEYWORD = {
     set: "set",
@@ -620,41 +635,79 @@ class Parser {
         }
     }
 
+    /**
+     * `if a == b { x } else if c == d { y } else { z }`, parsed as a flat chain.
+     *
+     * The chain is iterative rather than recursive because `else if` is not
+     * nesting — it is a sequence. Recursing once per clause grew the stack with
+     * the length of the chain, and a 20,000-clause chain exhausted it, letting a
+     * `RangeError` escape `parse`.
+     *
+     * Routing each clause back through `parseExpression` would fix the crash but
+     * spend the shared depth budget per clause, so a chain longer than
+     * MAX_EXPRESSION_DEPTH would be cut short and reported as a syntax error.
+     * `just` 1.58.0 accepts a 300-clause chain, so that would be a squiggle on a
+     * file `just` runs happily — the one failure mode this parser must not have.
+     *
+     * A loop has neither problem: no stack growth, and no limit on a construct
+     * the oracle accepts. Genuine nesting, via the brace blocks, still recurses
+     * through `parseExpression` and is still bounded there.
+     */
     private parseConditional(): Expression {
-        const start = this.advance().span; // `if`
-        const left = this.parseConcat();
+        const clauses: ConditionalClause[] = [];
+        let alternative: Expression | undefined;
 
-        let operator: "==" | "!=" | "=~" | undefined;
-        if (this.eat(TokenKind.EqualsEquals) !== undefined) {
-            operator = "==";
-        } else if (this.eat(TokenKind.BangEquals) !== undefined) {
-            operator = "!=";
-        } else if (this.eat(TokenKind.EqualsTilde) !== undefined) {
-            operator = "=~";
-        } else {
-            this.error("expected `==`, `!=` or `=~`", this.peek().span);
+        for (;;) {
+            const start = this.advance().span; // `if`
+            const left = this.parseConcat();
+
+            let operator: ComparisonOperator | undefined;
+            if (this.eat(TokenKind.EqualsEquals) !== undefined) {
+                operator = "==";
+            } else if (this.eat(TokenKind.BangEquals) !== undefined) {
+                operator = "!=";
+            } else if (this.eat(TokenKind.EqualsTilde) !== undefined) {
+                operator = "=~";
+            } else {
+                this.error("expected `==`, `!=` or `=~`", this.peek().span);
+            }
+
+            const right = operator === undefined ? undefined : this.parseConcat();
+            const consequent = this.parseBraceBlock();
+            clauses.push({ start, left, operator, right, consequent });
+
+            if (!this.atKeyword(KEYWORD.else)) {
+                break;
+            }
+            this.advance(); // `else`
+            if (this.atKeyword(KEYWORD.if)) {
+                continue; // another clause in the same chain
+            }
+            alternative = this.parseBraceBlock();
+            break;
         }
 
-        const right = operator === undefined ? undefined : this.parseConcat();
-        const then = this.parseBraceBlock();
-        let otherwise: Expression | undefined;
-        if (this.atKeyword(KEYWORD.else)) {
-            this.advance();
-            otherwise = this.atKeyword(KEYWORD.if)
-                ? this.parseConditional()
-                : this.parseBraceBlock();
+        // Fold right to left, so each clause's `alternative` is the rest of the
+        // chain. Every clause ends where the chain ends, which is what the
+        // previous recursive form produced too.
+        const end = this.peek().span;
+        let result: Expression | undefined = alternative;
+        for (let i = clauses.length - 1; i >= 0; i--) {
+            const clause = clauses[i];
+            if (clause === undefined) {
+                continue;
+            }
+            result = {
+                kind: "conditional",
+                span: spanBetween(clause.start, end),
+                ...(clause.left !== undefined && { left: clause.left }),
+                ...(clause.operator !== undefined && { operator: clause.operator }),
+                ...(clause.right !== undefined && { right: clause.right }),
+                ...(clause.consequent !== undefined && { consequent: clause.consequent }),
+                ...(result !== undefined && { alternative: result }),
+            };
         }
-
-        const span = spanBetween(start, this.peek().span);
-        return {
-            kind: "conditional",
-            span,
-            ...(left !== undefined && { left }),
-            ...(operator !== undefined && { operator }),
-            ...(right !== undefined && { right }),
-            ...(then !== undefined && { then }),
-            ...(otherwise !== undefined && { otherwise }),
-        };
+        return result ?? { kind: "error-expression", span: end };
     }
 
     /**
