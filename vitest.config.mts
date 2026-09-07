@@ -1,4 +1,12 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+
+/**
+ * The extension host is not available under vitest, so the provider layer gets
+ * a stand-in. Type checking still runs against the real `@types/vscode`; this
+ * only swaps the module at run time.
+ */
+const vscodeStub = fileURLToPath(new URL("./test/stubs/vscode.ts", import.meta.url));
 
 export default defineConfig({
     test: {
@@ -9,6 +17,7 @@ export default defineConfig({
                     include: ["src/**/*.test.ts", "test/grammar/**/*.test.ts"],
                     environment: "node",
                 },
+                resolve: { alias: { vscode: vscodeStub } },
             },
             {
                 test: {
