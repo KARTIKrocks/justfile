@@ -54,6 +54,7 @@ export class Range {
 
 /** Only the members the extension maps onto; the numbers are VS Code's. */
 export const SymbolKind = {
+    File: 0,
     Module: 1,
     Namespace: 2,
     Property: 6,

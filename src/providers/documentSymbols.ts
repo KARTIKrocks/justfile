@@ -17,6 +17,7 @@ const SELECTOR: vscode.DocumentSelector = { language: "just" };
 
 const KINDS: Readonly<Record<OutlineKind, vscode.SymbolKind>> = {
     [OutlineKind.Namespace]: vscode.SymbolKind.Namespace,
+    [OutlineKind.File]: vscode.SymbolKind.File,
     [OutlineKind.Variable]: vscode.SymbolKind.Variable,
     [OutlineKind.Function]: vscode.SymbolKind.Function,
     [OutlineKind.Module]: vscode.SymbolKind.Module,

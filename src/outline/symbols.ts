@@ -24,6 +24,7 @@ import type { Span } from "../parser/token.js";
  */
 export const OutlineKind = {
     Namespace: "namespace",
+    File: "file",
     Variable: "variable",
     Function: "function",
     Module: "module",
@@ -97,12 +98,20 @@ function signatureOf(recipe: ModelRecipe): string {
     return recipe.parameters.map(renderParameter).join(" ");
 }
 
-/** The groups a recipe belongs to. just allows more than one. */
+/**
+ * The groups a recipe belongs to. just allows more than one.
+ *
+ * A blank name is dropped rather than made into a heading. `[group('')]` is
+ * something just accepts, and VS Code silently discards a symbol with an empty
+ * name — heading and recipes together — so the recipe would simply vanish from
+ * the outline. Treating it as ungrouped keeps it reachable, which is the whole
+ * point of an outline.
+ */
 function groupsOfRecipe(recipe: ModelRecipe): string[] {
     const names: string[] = [];
     for (const attribute of recipe.attributes) {
         if (attribute.name === "group") {
-            names.push(...attribute.args);
+            names.push(...attribute.args.filter((arg) => arg.trim() !== ""));
         }
     }
     return names;
@@ -186,6 +195,23 @@ export function outline(model: JustfileModel, labels: OutlineLabels): OutlineSym
             kind: OutlineKind.Module,
             range: rangeOf(module.span),
             selectionRange: rangeOf(module.nameSpan),
+            children: [],
+        });
+    }
+
+    for (const importation of model.imports) {
+        // An import has no name of its own, so its path is the only thing to
+        // show. One with no path at all is unnameable and would be dropped by
+        // VS Code anyway.
+        if (importation.path === "") {
+            continue;
+        }
+        symbols.push({
+            name: importation.path,
+            detail: importation.optional ? "optional" : "",
+            kind: OutlineKind.File,
+            range: rangeOf(importation.span),
+            selectionRange: rangeOf(importation.span),
             children: [],
         });
     }

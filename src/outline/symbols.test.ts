@@ -84,6 +84,25 @@ loose:
         expect(named(symbols, "b").children.map((c) => c.name)).toEqual(["both"]);
     });
 
+    it("keeps a recipe visible when its group name is blank", () => {
+        // `[group('')]` is something just accepts. VS Code silently discards a
+        // symbol with an empty name — heading and children together — so the
+        // recipe would disappear from the outline entirely.
+        for (const source of [
+            "[group('')]\nfoo:\n    echo hi\n",
+            "[group('  ')]\nfoo:\n    echo hi\n",
+        ]) {
+            const symbols = outlineOf(source);
+            expect(symbols.map((s) => s.name)).toEqual(["foo"]);
+        }
+    });
+
+    it("still groups under the names that are not blank", () => {
+        const symbols = outlineOf("[group('')]\n[group('real')]\nfoo:\n    echo hi\n");
+        expect(named(symbols, "real").children.map((c) => c.name)).toEqual(["foo"]);
+        expect(symbols.map((s) => s.name)).not.toContain("");
+    });
+
     it("covers its children with the heading's range", () => {
         // VS Code reveals the range on click and uses it for breadcrumbs, so a
         // heading that does not contain its children misplaces both.
@@ -153,6 +172,22 @@ describe("the other items", () => {
         expect(named(outlineOf("mod sub\n"), "sub").detail).toBe("");
     });
 
+    it("shows an import by its path", () => {
+        const symbols = outlineOf('import "other.just"\nfoo:\n    echo hi\n');
+        expect(named(symbols, "other.just").kind).toBe(OutlineKind.File);
+        expect(named(symbols, "other.just").detail).toBe("");
+    });
+
+    it("marks an optional import", () => {
+        const symbols = outlineOf('import? "maybe.just"\nfoo:\n    echo hi\n');
+        expect(named(symbols, "maybe.just").detail).toBe("optional");
+    });
+
+    it("skips an import with no path to name it by", () => {
+        const symbols = outlineOf('import ""\nfoo:\n    echo hi\n');
+        expect(symbols.map((s) => s.name)).toEqual(["foo"]);
+    });
+
     it("shows settings", () => {
         const symbols = outlineOf('set shell := ["bash"]\nset dotenv-load\n');
         expect(named(symbols, "shell").kind).toBe(OutlineKind.Property);
@@ -162,6 +197,7 @@ describe("the other items", () => {
 
 describe("ordering and shape", () => {
     const BUSY = `set shell := ["bash"]
+import "shared.just"
 
 version := "1"
 
