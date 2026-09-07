@@ -56,7 +56,8 @@
           "options": {
             "maxAllowedComplexity": 20
           }
-        }
+        },
+        "useLiteralKeys": "off"
       }
     }
   },
