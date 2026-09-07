@@ -12,7 +12,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { modelFromSource } from "../../src/model/build.js";
@@ -21,9 +22,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const FIXTURES_DIR = join(HERE, "fixtures");
 
 /** The shape both sides are reduced to. Structure only — never evaluated values. */
+export interface ComparableParameter {
+    readonly name: string;
+    readonly kind: string;
+    readonly export: boolean;
+    /**
+     * Whether a default was written, not what it evaluates to. The dump reports
+     * defaults as `"lit"`, `["variable", "v"]` or `["evaluate", "echo x"]`; the
+     * last needs a subprocess to resolve, which Tier 1 must never do.
+     */
+    readonly hasDefault: boolean;
+}
+
 export interface ComparableRecipe {
     readonly name: string;
-    readonly parameters: ReadonlyArray<{ name: string; kind: string; export: boolean }>;
+    readonly parameters: readonly ComparableParameter[];
     /** Prior dependencies followed by `&&` subsequents, matching the dump's order. */
     readonly dependencies: ReadonlyArray<{ recipe: string; argumentCount: number }>;
     readonly priors: number;
@@ -45,8 +58,28 @@ export interface Comparable {
     readonly recipes: readonly ComparableRecipe[];
     readonly assignments: readonly ComparableAssignment[];
     readonly aliases: ReadonlyArray<{ name: string; target: string }>;
+    /**
+     * Settings the file sets, named as the dump spells them (snake_case).
+     *
+     * The dump always reports every setting with its resolved value, so it never
+     * says which ones the file wrote. The set is recovered by diffing against
+     * the defaults for the same binary — see `explicitSettings`.
+     */
+    readonly settings: readonly string[];
+    readonly modules: readonly string[];
     readonly first: string | null;
 }
+
+/**
+ * Imports are deliberately absent from Comparable.
+ *
+ * `just` inlines an imported file, so its recipes appear in the importing
+ * file's `recipes` as though they had been written there. Our parser does no
+ * I/O and never opens the imported file, so the two can never agree on a
+ * fixture that imports. Covering imports needs a harness that resolves them
+ * first, which is a separate piece of work; until then a fixture using
+ * `import` would fail for a reason that is not a parser defect.
+ */
 
 // ---------------------------------------------------------------------------
 // The just CLI
@@ -159,6 +192,56 @@ function attributeToString(entry: unknown): string {
     return `${name}(${args.join(",")})`;
 }
 
+/**
+ * The settings this binary reports for a file that sets nothing.
+ *
+ * Read from `just` itself rather than hard-coded, so the baseline tracks
+ * whatever version is under test instead of drifting as defaults change.
+ * Cached: it is the same for every fixture in a run.
+ */
+let defaultSettingsCache: Record<string, unknown> | undefined;
+
+function defaultSettings(): Record<string, unknown> {
+    if (defaultSettingsCache === undefined) {
+        // An empty file on disk, not `--justfile -`. Reading a justfile from
+        // stdin is a recent capability: just 1.40.0 and earlier treat `-` as a
+        // literal filename and fail with "No such file or directory".
+        const dir = mkdtempSync(join(tmpdir(), "just-defaults-"));
+        try {
+            const file = join(dir, "justfile");
+            writeFileSync(file, "");
+            const stdout = execFileSync(
+                justBinary(),
+                ["--justfile", file, "--working-directory", dir, "--dump", "--dump-format", "json"],
+                { encoding: "utf8", timeout: 15_000 },
+            );
+            defaultSettingsCache = asRecord(asRecord(JSON.parse(stdout))["settings"]);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }
+    return defaultSettingsCache;
+}
+
+/**
+ * Which settings the file actually set, recovered by diffing against defaults.
+ *
+ * A setting written with its own default value (`set dotenv-load := false`) is
+ * invisible to this and will not be compared. Nothing in the dump distinguishes
+ * that case, so the alternative is not a better comparison but a fabricated one.
+ */
+function explicitSettings(dumpSettings: Record<string, unknown>): string[] {
+    const defaults = defaultSettings();
+    return Object.keys(dumpSettings)
+        .filter((key) => JSON.stringify(dumpSettings[key]) !== JSON.stringify(defaults[key]))
+        .sort();
+}
+
+/** just spells settings in snake_case in the dump; the language uses kebab-case. */
+function settingKey(name: string): string {
+    return name.replaceAll("-", "_");
+}
+
 export function comparableFromDump(dump: unknown, caps: DumpCapabilities): Comparable {
     const root = asRecord(dump);
     const recipesRecord = asRecord(root["recipes"]);
@@ -172,6 +255,7 @@ export function comparableFromDump(dump: unknown, caps: DumpCapabilities): Compa
                     name: String(param["name"] ?? ""),
                     kind: String(param["kind"] ?? "singular"),
                     export: param["export"] === true,
+                    hasDefault: param["default"] !== null && param["default"] !== undefined,
                 };
             });
             const dependencies = (Array.isArray(r["dependencies"]) ? r["dependencies"] : []).map(
@@ -223,6 +307,8 @@ export function comparableFromDump(dump: unknown, caps: DumpCapabilities): Compa
         recipes,
         assignments,
         aliases,
+        settings: explicitSettings(asRecord(root["settings"])),
+        modules: Object.keys(asRecord(root["modules"])).sort(),
         first: typeof root["first"] === "string" ? root["first"] : null,
     };
 }
@@ -241,6 +327,7 @@ export function comparableFromParser(source: string, caps: DumpCapabilities): Co
                     name: p.name,
                     kind: p.kind,
                     export: p.export,
+                    hasDefault: p.hasDefault,
                 })),
                 // The dump concatenates priors and subsequents into one list.
                 dependencies: [...recipe.dependencies, ...recipe.subsequents].map((d) => ({
@@ -271,7 +358,14 @@ export function comparableFromParser(source: string, caps: DumpCapabilities): Co
         .map((a) => ({ name: a.name, target: a.target }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
-    return { recipes, assignments, aliases, first: model.first ?? null };
+    return {
+        recipes,
+        assignments,
+        aliases,
+        settings: model.settings.map((s) => settingKey(s.name)).sort(),
+        modules: model.modules.map((m) => m.name).sort(),
+        first: model.first ?? null,
+    };
 }
 
 // ---------------------------------------------------------------------------
