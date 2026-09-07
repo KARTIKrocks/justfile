@@ -165,6 +165,39 @@ describe("unterminated literal recovery", () => {
         expect(kinds(source)).toContain(TokenKind.Indent);
     });
 
+    it("recovers when the unterminated literal's lines all end in a backslash", () => {
+        // A backslash-newline is a line continuation, so the escape consumes the
+        // newline. If that newline is not noted as a recovery point, there is
+        // nowhere to rewind to and the rest of the file is swallowed.
+        const source = 'broken := "oops\\\nbuild:\\\n    echo hi\\\n';
+        const token = find(source, TokenKind.StringLiteral);
+        expect(token?.unterminated).toBe(true);
+        expect(token?.text).toBe('"oops\\');
+        expect(texts(source, TokenKind.Identifier)).toContain("build");
+    });
+
+    it("recovers at the escaped newline rather than a later one", () => {
+        // Recovering one line too late invented a recipe named `echo` from the
+        // body line, and lost `build` entirely — worse than dropping entries,
+        // because the outline showed something that is not in the file.
+        const source = 'broken := "oops\\\nbuild:\n    echo hi\n';
+        expect(texts(source, TokenKind.Identifier)).toContain("build");
+    });
+
+    it("still joins a valid line continuation, which shares the escape path", () => {
+        const token = find('a := "one\\\ntwo"\n', TokenKind.StringLiteral);
+        expect(token?.unterminated).toBeUndefined();
+        expect(token?.value).toBe("onetwo");
+    });
+
+    it("keeps indentation after a line continuation, as just does", () => {
+        // just 1.58.0 reports this as `x    indented`. Stripping the leading
+        // whitespace was an assumption, and it made every continued string in a
+        // hover differ from the value just actually computes.
+        const token = find('b := "x\\\n    indented"\n', TokenKind.StringLiteral);
+        expect(token?.value).toBe("x    indented");
+    });
+
     it("lets a triple-quoted literal run to EOF, since spanning lines is its purpose", () => {
         const token = find("a := '''one\ntwo\n", TokenKind.StringLiteral);
         expect(token?.unterminated).toBe(true);

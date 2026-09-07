@@ -158,10 +158,10 @@ function cook(raw: string): string {
                 out += '"';
                 break;
             case "\n":
-                // A backslash-newline swallows the newline and following indent.
-                while (i + 1 < raw.length && isHorizontalSpace(raw[i + 1] ?? EOF)) {
-                    i++;
-                }
+                // A backslash-newline is a line continuation: it swallows the
+                // newline and nothing else. It does NOT strip the indentation on
+                // the next line — verified against just 1.58.0, which reports
+                // `"x\<newline>    indented"` as `x    indented`.
                 break;
             case "u": {
                 const m = /^\{([0-9a-fA-F]{1,6})\}/.exec(raw.slice(i + 1));
@@ -479,7 +479,16 @@ class Lexer {
         while (!this.cursor.atEnd) {
             // Only cooked literals honour backslash escapes.
             if (delim.cooked && this.cursor.peek() === "\\") {
-                this.cursor.advance(2);
+                this.cursor.advance(); // the backslash
+                // A backslash-newline is a line continuation, so the escape
+                // consumes the newline. Note it as a recovery point anyway,
+                // before stepping over it — otherwise a literal whose lines all
+                // end in a backslash offers nowhere to rewind to, and recovery
+                // lands further down the file than it should.
+                if (firstNewline === undefined && this.cursor.peek() === "\n") {
+                    firstNewline = this.cursor.mark();
+                }
+                this.cursor.advance(); // the escaped character
                 continue;
             }
             if (this.cursor.lookingAt(delim.open)) {
