@@ -74,6 +74,13 @@
         ],
         "configuration": "./language-configuration.json"
       }
+    ],
+    "grammars": [
+      {
+        "language": "just",
+        "scopeName": "source.just",
+        "path": "./syntaxes/just.tmLanguage.json"
+      }
     ]
   },
   "scripts": {
@@ -93,7 +100,9 @@
     "@types/vscode": "^1.101.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true

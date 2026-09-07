@@ -1,0 +1,220 @@
+/**
+ * The grammar, run through the engine VS Code itself uses.
+ *
+ * Everything here asserts on a scope a theme actually colours. Structural tests
+ * cannot tell a working grammar from one that matches nothing, so this is the
+ * file that decides whether the highlighting is real.
+ */
+
+import { describe, expect, it } from "vitest";
+import { scopesAt, tokenize } from "./grammar.js";
+
+const SAMPLE = `# Build everything
+set shell := ["bash", "-c"]
+set dotenv-load
+
+export VERSION := "1.0"
+target_dir := justfile_directory() / "tmp"
+
+alias b := build
+
+import? "extra.just"
+mod docs "docs/justfile"
+
+# Compile the project
+[group('build')]
+[private]
+@build profile="release" *flags:
+    #!/usr/bin/env bash
+    # not shell output
+    echo "building {{ profile }}"
+    cargo build \\
+        --locked
+
+test: build && report
+    just --list
+`;
+
+describe("top-level items", () => {
+    it("scopes a comment", async () => {
+        expect(await scopesAt(SAMPLE, "# Build everything")).toContain(
+            "comment.line.number-sign.just",
+        );
+    });
+
+    it("scopes `set` and the setting name", async () => {
+        expect(await scopesAt(SAMPLE, "set shell")).toContain("keyword.other.set.just");
+        expect(await scopesAt(SAMPLE, "shell :=")).toContain("support.type.property-name.just");
+    });
+
+    it("highlights inside a setting's value", async () => {
+        expect(await scopesAt(SAMPLE, '"bash"')).toContain("string.quoted.double.just");
+    });
+
+    it("scopes a setting with no value", async () => {
+        expect(await scopesAt(SAMPLE, "dotenv-load")).toContain("support.type.property-name.just");
+    });
+
+    it("scopes an exported assignment", async () => {
+        expect(await scopesAt(SAMPLE, "export VERSION")).toContain("storage.modifier.export.just");
+        expect(await scopesAt(SAMPLE, "VERSION")).toContain("variable.other.assignment.just");
+        expect(await scopesAt(SAMPLE, ':= "1.0"')).toContain("keyword.operator.assignment.just");
+    });
+
+    it("scopes a plain assignment and its expression", async () => {
+        expect(await scopesAt(SAMPLE, "target_dir")).toContain("variable.other.assignment.just");
+        expect(await scopesAt(SAMPLE, "justfile_directory")).toContain("support.function.just");
+        expect(await scopesAt(SAMPLE, '/ "tmp"')).toContain("keyword.operator.just");
+    });
+
+    it("scopes an alias and the recipe it points at", async () => {
+        expect(await scopesAt(SAMPLE, "alias")).toContain("keyword.other.alias.just");
+        expect(await scopesAt(SAMPLE, "b :=")).toContain("entity.name.function.alias.just");
+        expect(await scopesAt(SAMPLE, "build\n\nimport")).toContain("entity.name.function.just");
+    });
+
+    it("scopes an optional import", async () => {
+        expect(await scopesAt(SAMPLE, "import")).toContain("keyword.control.import.just");
+        expect(await scopesAt(SAMPLE, '? "extra')).toContain("keyword.operator.optional.just");
+        expect(await scopesAt(SAMPLE, '"extra.just"')).toContain("string.quoted.double.just");
+    });
+
+    it("scopes a module and its path", async () => {
+        expect(await scopesAt(SAMPLE, "mod")).toContain("keyword.control.import.module.just");
+        expect(await scopesAt(SAMPLE, "docs ")).toContain("entity.name.namespace.just");
+        expect(await scopesAt(SAMPLE, '"docs/justfile"')).toContain("string.quoted.double.just");
+    });
+});
+
+describe("attributes", () => {
+    it("scopes the attribute name", async () => {
+        expect(await scopesAt(SAMPLE, "group")).toContain("entity.other.attribute-name.just");
+        expect(await scopesAt(SAMPLE, "private")).toContain("entity.other.attribute-name.just");
+    });
+
+    it("leaves a recipe's doc comment as an ordinary comment", async () => {
+        // just treats the line above a recipe as its documentation, but deciding
+        // that needs the following lines, and a TextMate rule only ever sees one.
+        // The semantic token provider has the parser's answer; this layer does not
+        // guess at it.
+        const scopes = await scopesAt(SAMPLE, "# Compile the project");
+        expect(scopes).toContain("comment.line.number-sign.just");
+        expect(scopes.some((s) => s.includes("documentation"))).toBe(false);
+    });
+
+    it("scopes an attribute argument as a string", async () => {
+        expect(await scopesAt(SAMPLE, "'build'")).toContain("string.quoted.single.just");
+    });
+});
+
+describe("recipes", () => {
+    it("scopes the name and the quiet marker", async () => {
+        expect(await scopesAt(SAMPLE, "@build")).toContain("keyword.operator.quiet.just");
+        expect(await scopesAt(SAMPLE, "build profile")).toContain("entity.name.function.just");
+    });
+
+    it("scopes parameters, defaults and variadic markers", async () => {
+        expect(await scopesAt(SAMPLE, "profile=")).toContain("variable.parameter.just");
+        expect(await scopesAt(SAMPLE, '"release"')).toContain("string.quoted.double.just");
+        expect(await scopesAt(SAMPLE, "*flags")).toContain("keyword.operator.variadic.just");
+        expect(await scopesAt(SAMPLE, "flags:")).toContain("variable.parameter.just");
+    });
+
+    it("scopes dependencies, including the ones that run after", async () => {
+        expect(await scopesAt(SAMPLE, "test:")).toContain("entity.name.function.just");
+        expect(await scopesAt(SAMPLE, "build &&")).toContain("entity.name.function.just");
+        expect(await scopesAt(SAMPLE, "&&")).toContain("keyword.operator.logical.just");
+        expect(await scopesAt(SAMPLE, "report")).toContain("entity.name.function.just");
+    });
+
+    it("scopes a shebang as the interpreter line, not as a comment body", async () => {
+        expect(await scopesAt(SAMPLE, "#!/usr/bin/env")).toContain("comment.line.shebang.just");
+    });
+
+    it("scopes a whole-line comment in the body", async () => {
+        expect(await scopesAt(SAMPLE, "# not shell output")).toContain(
+            "comment.line.number-sign.just",
+        );
+    });
+
+    it("scopes an interpolation and the variable inside it", async () => {
+        expect(await scopesAt(SAMPLE, "{{ profile")).toContain(
+            "punctuation.section.interpolation.begin.just",
+        );
+        expect(await scopesAt(SAMPLE, "profile }}")).toContain("variable.other.just");
+    });
+
+    it("scopes a trailing backslash as a continuation", async () => {
+        expect(await scopesAt(SAMPLE, "\\\n        --locked")).toContain(
+            "punctuation.separator.continuation.just",
+        );
+    });
+
+    it("leaves the rest of a body line to the shell", async () => {
+        // Guessing at shell syntax would mis-colour working recipes. Real shell
+        // highlighting is an embedded-grammar job, not this one.
+        const scopes = await scopesAt(SAMPLE, "cargo build");
+        expect(scopes).toEqual(["source.just", "meta.recipe.just"]);
+    });
+
+    it("keeps the body inside the recipe and stops at the next item", async () => {
+        const tokens = await tokenize(SAMPLE);
+        const justList = tokens.find((t) => t.text.includes("--list"));
+        expect(justList?.scopes).toContain("meta.recipe.just");
+
+        const nextItem = tokens.find((t) => t.text === "test");
+        expect(nextItem?.scopes).toContain("entity.name.function.just");
+    });
+});
+
+describe("things that must not be mistaken for something else", () => {
+    it("does not read an assignment as a recipe", async () => {
+        expect(await scopesAt("x := y\n", "x")).toContain("variable.other.assignment.just");
+        expect(await scopesAt("x := y\n", "x")).not.toContain("entity.name.function.just");
+    });
+
+    it("does not treat a `#` inside a string as a comment", async () => {
+        const source = 'colour := "#ff0000"\n';
+        expect(await scopesAt(source, "#ff0000")).toContain("string.quoted.double.just");
+        expect(await scopesAt(source, "#ff0000")).not.toContain("comment.line.number-sign.just");
+    });
+
+    it("does treat a trailing `#` after an expression as a comment", async () => {
+        const source = 'x := "a" # note\n';
+        expect(await scopesAt(source, "# note")).toContain("comment.line.number-sign.just");
+    });
+
+    it("allows a recipe named after a keyword", async () => {
+        // `set` is not reserved: just accepts it as a recipe name.
+        expect(await scopesAt("set:\n    echo hi\n", "set")).toContain("entity.name.function.just");
+    });
+
+    it("resolves escapes only in cooked strings", async () => {
+        expect(await scopesAt('a := "x\\ny"\n', "\\n")).toContain("constant.character.escape.just");
+        expect(await scopesAt("a := 'x\\ny'\n", "\\n")).not.toContain(
+            "constant.character.escape.just",
+        );
+    });
+
+    it("leaves an unknown escape unscoped rather than marking it invalid", async () => {
+        // just rejects `\\q`, but saying so is Tier 2's job. A red squiggle from
+        // Tier 1 on a file just might accept is the failure mode to avoid.
+        const scopes = await scopesAt('a := "x\\qy"\n', "\\q");
+        expect(scopes).toContain("string.quoted.double.just");
+        expect(scopes).not.toContain("constant.character.escape.just");
+        expect(scopes.some((s) => s.startsWith("invalid."))).toBe(false);
+    });
+
+    it("keeps a triple-quoted string in one piece", async () => {
+        const source = 'a := """\n  line one " still inside\n  """\n';
+        expect(await scopesAt(source, "still inside")).toContain(
+            "string.quoted.triple.double.just",
+        );
+    });
+
+    it("scopes a backtick command as a string, not as shell", async () => {
+        expect(await scopesAt("a := `date +%s`\n", "date")).toContain(
+            "string.interpolated.backtick.just",
+        );
+    });
+});
