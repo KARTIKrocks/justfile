@@ -121,16 +121,27 @@ class Parser {
      * `spanBetween(from, this.peek().span)` reads naturally and is wrong: peek
      * is the next *unconsumed* token, so the span swallows the first token of
      * whatever follows. A recipe then covers the name of the recipe below it,
-     * every item's range overlaps its neighbour's, and anything that asks "what
-     * is at this position" can get the wrong answer.
+     * every construct's range overlaps its neighbour's, and anything that asks
+     * "what is at this position" can get the wrong answer.
      *
-     * Zero-width tokens are skipped so a span ends at real text rather than at
-     * an indent or dedent marker.
+     * Zero-width tokens and trailing newlines are skipped, so a span ends on
+     * real text. Clicking a one-line item in the outline should not select
+     * through the line break into the next line.
+     *
+     * The scan stops at `from`: a production that consumed nothing would
+     * otherwise land on a token *before* its own start and collapse to length
+     * zero, and a node with no width cannot be highlighted or pointed at.
      */
     private spanThrough(from: Span): Span {
         for (let i = this.index - 1; i >= 0; i--) {
             const token = this.tokens[i];
-            if (token !== undefined && token.span.length > 0) {
+            if (token === undefined) {
+                continue;
+            }
+            if (token.span.offset < from.offset) {
+                break;
+            }
+            if (token.span.length > 0 && token.kind !== TokenKind.Newline) {
                 return spanBetween(from, token.span);
             }
         }
@@ -271,8 +282,8 @@ class Parser {
             return this.parseModule(attributes);
         }
         if (this.atExportedAssignment()) {
-            const exported = this.advance().text === KEYWORD.export;
-            return this.parseAssignment(exported);
+            const keyword = this.advance();
+            return this.parseAssignment(keyword.text === KEYWORD.export, keyword.span);
         }
         if (this.isAssignmentAhead(0)) {
             return this.parseAssignment(false);
@@ -328,11 +339,14 @@ class Parser {
         if (this.eat(TokenKind.ColonEquals) !== undefined) {
             value = this.parseExpression();
         }
-        const end = this.peek().span;
+        // After recovery, not before: `set shell := ["bash"]` is valid just that
+        // the expression parser cannot yet read, and taking the span here keeps
+        // the item covering its line instead of stopping where parsing gave up.
         this.recoverToNextLine();
+        const span = this.spanThrough(start);
         return value === undefined
-            ? { kind: "setting", span: spanBetween(start, end), name }
-            : { kind: "setting", span: spanBetween(start, end), name, value };
+            ? { kind: "setting", span, name }
+            : { kind: "setting", span, name, value };
     }
 
     private parseAlias(): Alias {
@@ -342,22 +356,25 @@ class Parser {
         if (this.expect(TokenKind.ColonEquals, "`:=`") !== undefined) {
             target = this.parseName();
         }
-        const end = this.peek().span;
         this.recoverToNextLine();
+        const span = this.spanThrough(start);
         return target === undefined
-            ? { kind: "alias", span: spanBetween(start, end), name }
-            : { kind: "alias", span: spanBetween(start, end), name, target };
+            ? { kind: "alias", span, name }
+            : { kind: "alias", span, name, target };
     }
 
-    private parseAssignment(exported: boolean): Assignment {
+    /**
+     * `start` is the `export` or `unexport` keyword when there was one, so the
+     * item covers the whole statement rather than beginning at its name.
+     */
+    private parseAssignment(exported: boolean, start?: Span): Assignment {
         const name = this.parseName();
         this.expect(TokenKind.ColonEquals, "`:=`");
         const value = this.parseExpression();
-        const end = this.peek().span;
         this.recoverToNextLine();
         return {
             kind: "assignment",
-            span: spanBetween(name.span, end),
+            span: this.spanThrough(start ?? name.span),
             name,
             exported,
             value,
@@ -371,11 +388,11 @@ class Parser {
         if (path === undefined) {
             this.error("expected a quoted path after `import`", this.peek().span);
         }
-        const end = this.peek().span;
         this.recoverToNextLine();
+        const span = this.spanThrough(start);
         return path === undefined
-            ? { kind: "import", span: spanBetween(start, end), optional }
-            : { kind: "import", span: spanBetween(start, end), optional, path };
+            ? { kind: "import", span, optional }
+            : { kind: "import", span, optional, path };
     }
 
     private parseModule(attributes: readonly Attribute[]): ModuleDeclaration {
@@ -811,7 +828,7 @@ class Parser {
             this.advance();
             const inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
             this.expect(TokenKind.ParenR, "`)`");
-            const span = spanBetween(token.span, this.peek().span);
+            const span = this.spanThrough(token.span);
             return inner === undefined ? { kind: "group", span } : { kind: "group", span, inner };
         }
 
@@ -824,7 +841,7 @@ class Parser {
             const args = this.parseCallArguments();
             return {
                 kind: "call",
-                span: spanBetween(name.span, this.peek().span),
+                span: this.spanThrough(name.span),
                 callee: name,
                 args,
             };
