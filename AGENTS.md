@@ -66,7 +66,19 @@ highlighting, outline, and completion.
 ### 5. Activation stays cheap
 
 Zero runtime dependencies. Activation must not spawn a process, read a file, or block on I/O.
-Targets enforced in CI: activation under 50 ms, bundle under 300 KB.
+
+Two of these are machine-checked, one is not:
+
+| Budget | How it is enforced |
+|---|---|
+| Bundle under 300 KB | CI — `node esbuild.mjs --production` fails over the limit |
+| Zero runtime dependencies | CI — the `bundle` job fails on any entry in `dependencies` |
+| Activation under 50 ms | **Review only.** Not yet measured anywhere |
+
+Measuring activation time needs a VS Code integration harness (`@vscode/test-cli`) that does not
+exist yet. Until it does, nothing will stop you from making activation slow — so treat any I/O,
+subprocess, top-level `await`, or large table construction reachable from `activate()` as a
+defect, even though CI stays green.
 
 ### 6. All user-facing strings go through `vscode.l10n`
 

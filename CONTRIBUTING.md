@@ -41,6 +41,10 @@ Every PR runs: typecheck, Biome lint and format check, unit tests, differential 
 matrix of `just` versions, and the bundle-size and zero-runtime-dependency checks. All of them
 are required.
 
+Note what is *not* in that list: the sub-50 ms activation budget in [AGENTS.md](AGENTS.md) is
+not measured by anything yet, because doing so needs a VS Code integration harness we have not
+built. A PR that slows activation will pass CI. Reviewers are the only check on it.
+
 [Greptile](https://www.greptile.com) also reviews every PR against this repository's
 architectural invariants. Its configuration lives in `.greptile/` — `config.json` holds the
 structured rules, `rules.md` explains the reasoning behind them, and `files.json` points the

@@ -3,8 +3,16 @@
   "commentTypes": ["logic", "syntax"],
   "triggerOnUpdates": true,
   "ignorePatterns": "dist/**\nout/**\nnode_modules/**\npackage-lock.json",
-  "summarySection": { "included": true, "collapsible": true, "defaultOpen": false },
-  "issuesTableSection": { "included": true, "collapsible": false, "defaultOpen": true },
+  "summarySection": {
+    "included": true,
+    "collapsible": true,
+    "defaultOpen": false
+  },
+  "issuesTableSection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": true
+  },
   "instructions": "A VS Code extension for `just`, the command runner. TypeScript 7, bundled with esbuild, linted and formatted by Biome. Zero runtime dependencies by design.\n\nThe architecture is two tiers with a hard boundary between them, and most of what can go wrong here is a violation of that boundary rather than an ordinary bug. Tier 1 (`src/parser`, `src/model`) is a pure in-process library that runs on every keystroke: no VS Code API, no I/O, no subprocesses. Tier 2 runs the `just` CLI, on demand, in trusted workspaces only.\n\nBiome already enforces style and formatting deterministically, so style comments add nothing. Review for correctness, for boundary violations, and for the invariants in the rules below.",
   "rules": [
     {
@@ -15,13 +23,13 @@
     },
     {
       "id": "trust-gated-execution",
-      "rule": "Nothing may spawn the `just` binary in an untrusted workspace. `just` evaluates backticks and `shell()` at PARSE time, so merely reading a Justfile with the CLI executes whatever it contains. Every spawn must route through the single trust-checked helper — flag any direct use of child_process, spawn, exec, execFile, ProcessExecution or ShellExecution in a feature module, even when the workspace happens to be trusted, because the next caller will copy it. Also flag any code path that honours a workspace-scoped `just.executablePath` without a trust check (that setting is itself an execution vector), and any code that captures trust at activation rather than reading it at call time.",
+      "rule": "Nothing may spawn the `just` binary in an untrusted workspace. `just` evaluates backticks and `shell()` at PARSE time, so merely reading a Justfile with the CLI executes whatever it contains. Every spawn must route through the single trust-checked helper \u2014 flag any direct use of child_process, spawn, exec, execFile, ProcessExecution or ShellExecution in a feature module, even when the workspace happens to be trusted, because the next caller will copy it. Also flag any code path that honours a workspace-scoped `just.executablePath` without a trust check (that setting is itself an execution vector), and any code that captures trust at activation rather than reading it at call time.",
       "scope": ["src/**"],
       "severity": "high"
     },
     {
       "id": "parser-totality",
-      "rule": "The parser must be total: it never throws and never returns null or undefined for any input, including malformed, truncated, or empty. Flag `throw` on the parse path, returns of null/undefined from a parse method, and any loop that is not guaranteed to advance the cursor — an unbounded loop is worse than a wrong parse, because it hangs the extension host. New AST nodes must carry a source range.",
+      "rule": "The parser must be total: it never throws and never returns null or undefined for any input, including malformed, truncated, or empty. Flag `throw` on the parse path, returns of null/undefined from a parse method, and any loop that is not guaranteed to advance the cursor \u2014 an unbounded loop is worse than a wrong parse, because it hangs the extension host. New AST nodes must carry a source range.",
       "scope": ["src/parser/**", "src/model/**"],
       "severity": "high"
     },
@@ -33,7 +41,7 @@
     },
     {
       "id": "activation-budget",
-      "rule": "Activation must stay under 50ms and do no I/O. Flag any file read, subprocess, network call, large table construction, or top-level await reachable from `activate()`. Flag any addition to `dependencies` in package.json — the extension must have zero runtime dependencies, and the bundle must stay under 300KB.",
+      "rule": "Activation must stay under 50ms and do no I/O. Nothing measures this \u2014 there is no activation-time check in CI \u2014 so review is the only thing enforcing it. Flag any file read, subprocess, network call, large table construction, or top-level await reachable from `activate()`. Flag any addition to `dependencies` in package.json; the extension must have zero runtime dependencies, and the bundle must stay under 300KB (those two are CI-enforced).",
       "scope": ["src/extension.ts", "package.json", "esbuild.mjs"],
       "severity": "medium"
     },
@@ -63,7 +71,7 @@
     },
     {
       "id": "no-version-assumptions",
-      "rule": "Do not assume `just` CLI behaviour from documentation or memory — its docs lag its releases. Flag any new use of a `just` flag, output shape, or language construct that is not backed by a version check or a differential fixture. The supported floor is `just` 1.27.0; a feature newer than that needs version gating, and completion must not offer it on older binaries.",
+      "rule": "Do not assume `just` CLI behaviour from documentation or memory \u2014 its docs lag its releases. Flag any new use of a `just` flag, output shape, or language construct that is not backed by a version check or a differential fixture. The supported floor is `just` 1.27.0; a feature newer than that needs version gating, and completion must not offer it on older binaries.",
       "scope": ["src/**"],
       "severity": "medium"
     }
