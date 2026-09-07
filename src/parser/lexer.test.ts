@@ -136,3 +136,38 @@ describe("lexer totality", () => {
         expect(offset).toBeLessThanOrEqual(source.length);
     });
 });
+
+describe("unterminated literal recovery", () => {
+    // `just` accepts newlines inside both '...' and "..." — verified against
+    // 1.58.0 — so scanning across them is correct, and a literal closed by a
+    // quote further down the file genuinely does swallow the lines between.
+    // Matching that beats a tidier outline that misrepresents the source.
+    it("keeps a multi-line string as one token", () => {
+        expect(texts('a := "one\ntwo"\n', TokenKind.StringLiteral)).toEqual(['"one\ntwo"']);
+        expect(find('a := "one\ntwo"\n', TokenKind.StringLiteral)?.value).toBe("one\ntwo");
+    });
+
+    // Reaching EOF is different: `just` rejects such a file outright, so no
+    // valid program depends on how we recover. Cutting the literal at its first
+    // newline keeps the rest of the file parseable, which is what matters while
+    // someone is still typing the closing quote.
+    it("ends an EOF-unterminated string at its first newline", () => {
+        const source = 'broken := "oops\n\nbuild:\n    echo hi\n';
+        const token = find(source, TokenKind.StringLiteral);
+        expect(token?.unterminated).toBe(true);
+        expect(token?.text).toBe('"oops');
+    });
+
+    it("still lexes the recipe below an EOF-unterminated string", () => {
+        const source = 'broken := "oops\n\nbuild:\n    echo hi\n';
+        const identifiers = texts(source, TokenKind.Identifier);
+        expect(identifiers).toContain("build");
+        expect(kinds(source)).toContain(TokenKind.Indent);
+    });
+
+    it("lets a triple-quoted literal run to EOF, since spanning lines is its purpose", () => {
+        const token = find("a := '''one\ntwo\n", TokenKind.StringLiteral);
+        expect(token?.unterminated).toBe(true);
+        expect(token?.text).toBe("'''one\ntwo\n");
+    });
+});

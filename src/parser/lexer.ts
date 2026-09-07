@@ -71,6 +71,13 @@ class Cursor {
         return { offset: this.offset, line: this.line, column: this.column };
     }
 
+    /** Rewind to a previous mark. Only used to recover from an unterminated literal. */
+    reset(at: { offset: number; line: number; column: number }): void {
+        this.offset = at.offset;
+        this.line = at.line;
+        this.column = at.column;
+    }
+
     spanFrom(start: { offset: number; line: number; column: number }): Span {
         return {
             offset: start.offset,
@@ -466,6 +473,8 @@ class Lexer {
     ): void {
         this.cursor.advance(delim.open.length);
         const contentStart = this.cursor.pos;
+        // Where the literal would end if we had to cut it short. See below.
+        let firstNewline: { offset: number; line: number; column: number } | undefined;
 
         while (!this.cursor.atEnd) {
             // Only cooked literals honour backslash escapes.
@@ -482,11 +491,29 @@ class Lexer {
                 });
                 return;
             }
+            if (firstNewline === undefined && this.cursor.peek() === "\n") {
+                firstNewline = this.cursor.mark();
+            }
             this.cursor.advance();
         }
 
-        // Ran to end of file. Emit the token anyway — a half-typed string must
-        // still highlight, and reporting it as an error is Tier 2's job.
+        // Ran to end of file without closing.
+        //
+        // Scanning across newlines above is correct, not a bug: `just` accepts
+        // newlines inside both '...' and "..." and reports the value with the
+        // newline intact. A literal that swallows the lines below it is what the
+        // source actually means, and matching that beats a tidier-looking outline
+        // that misrepresents the file.
+        //
+        // Reaching EOF is the one case where that reasoning does not apply. Such
+        // a file is rejected by `just` outright, so no valid program can depend
+        // on how we recover, and cutting the literal at its first newline lets
+        // the rest of the file keep parsing. That is the common case in an
+        // editor: someone has typed an opening quote and not yet closed it, and
+        // they should not lose the outline for everything below while they type.
+        if (firstNewline !== undefined && delim.open.length === 1) {
+            this.cursor.reset(firstNewline);
+        }
         this.push(delim.kind, start, this.cursor.slice(start.offset), {
             style: delim.style,
             unterminated: true,

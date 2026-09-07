@@ -34,8 +34,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 1.27.0 is our declared minimum; latest catches upstream changes early.
-        just: ["1.27.0", "1.40.0", "1.58.0"]
+        # 1.27.0 is the declared minimum and 1.58.0 catches upstream changes
+        # early. 1.34.0 and 1.35.0 straddle the release where `--dump` began
+        # reporting `private` on assignments, which is exactly the kind of
+        # shape change that breaks the comparison silently.
+        just: ["1.27.0", "1.34.0", "1.35.0", "1.40.0", "1.58.0"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

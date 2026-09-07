@@ -34,9 +34,16 @@ export interface ComparableRecipe {
     readonly private: boolean;
 }
 
+export interface ComparableAssignment {
+    readonly name: string;
+    readonly export: boolean;
+    /** Omitted when the installed `just` does not report it. See DumpCapabilities. */
+    readonly private?: boolean;
+}
+
 export interface Comparable {
     readonly recipes: readonly ComparableRecipe[];
-    readonly assignments: ReadonlyArray<{ name: string; export: boolean; private: boolean }>;
+    readonly assignments: readonly ComparableAssignment[];
     readonly aliases: ReadonlyArray<{ name: string; target: string }>;
     readonly first: string | null;
 }
@@ -66,6 +73,28 @@ export function versionAtLeast(a: string, b: string): boolean {
         }
     }
     return true;
+}
+
+/**
+ * What the installed `just` actually reports, so the comparison never asserts
+ * something the CLI never said.
+ *
+ * Coercing a missing field to a default is the subtle way a differential test
+ * stops being differential: it turns "just is silent about this" into "just
+ * says false", and then fails our parser for disagreeing with a value that was
+ * never there.
+ */
+export interface DumpCapabilities {
+    /**
+     * `private` on assignments. Absent before 1.35.0 — established by bisecting
+     * the real binaries, not from the changelog, which documents only the
+     * `[private]` attribute and not the underscore convention.
+     */
+    readonly assignmentPrivate: boolean;
+}
+
+export function capabilitiesFor(version: string): DumpCapabilities {
+    return { assignmentPrivate: versionAtLeast(version, "1.35.0") };
 }
 
 export interface DumpResult {
@@ -130,7 +159,7 @@ function attributeToString(entry: unknown): string {
     return `${name}(${args.join(",")})`;
 }
 
-export function comparableFromDump(dump: unknown): Comparable {
+export function comparableFromDump(dump: unknown, caps: DumpCapabilities): Comparable {
     const root = asRecord(dump);
     const recipesRecord = asRecord(root["recipes"]);
 
@@ -173,12 +202,12 @@ export function comparableFromDump(dump: unknown): Comparable {
         .sort((a, b) => a.name.localeCompare(b.name));
 
     const assignments = Object.values(asRecord(root["assignments"]))
-        .map((raw) => {
+        .map((raw): ComparableAssignment => {
             const a = asRecord(raw);
             return {
                 name: String(a["name"] ?? ""),
                 export: a["export"] === true,
-                private: a["private"] === true,
+                ...(caps.assignmentPrivate ? { private: a["private"] === true } : {}),
             };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -198,7 +227,7 @@ export function comparableFromDump(dump: unknown): Comparable {
     };
 }
 
-export function comparableFromParser(source: string): Comparable {
+export function comparableFromParser(source: string, caps: DumpCapabilities): Comparable {
     const model = modelFromSource(source);
 
     const recipes = model.recipes
@@ -229,7 +258,13 @@ export function comparableFromParser(source: string): Comparable {
         .sort((a, b) => a.name.localeCompare(b.name));
 
     const assignments = model.assignments
-        .map((a) => ({ name: a.name, export: a.export, private: a.private }))
+        .map(
+            (a): ComparableAssignment => ({
+                name: a.name,
+                export: a.export,
+                ...(caps.assignmentPrivate ? { private: a.private } : {}),
+            }),
+        )
         .sort((a, b) => a.name.localeCompare(b.name));
 
     const aliases = model.aliases
