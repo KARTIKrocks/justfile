@@ -89,8 +89,17 @@ export interface ConditionalExpression extends Node {
     readonly left?: Expression;
     readonly operator?: "==" | "!=" | "=~";
     readonly right?: Expression;
-    readonly then?: Expression;
-    readonly otherwise?: Expression;
+    /**
+     * The `{ ... }` branch taken when the comparison holds.
+     *
+     * Named `consequent` rather than `then` deliberately: an object with a
+     * `then` property is thenable, so `await node` or `Promise.resolve(node)`
+     * would treat an AST node as a promise and hang or resolve to the wrong
+     * thing. Nothing awaits AST nodes today, but the trap costs nothing to
+     * remove and everything to debug.
+     */
+    readonly consequent?: Expression;
+    readonly alternative?: Expression;
 }
 
 export interface GroupExpression extends Node {
