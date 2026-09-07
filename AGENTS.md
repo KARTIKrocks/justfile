@@ -124,7 +124,12 @@ Un-awaited promises in the activation path are a real hazard and will not be cau
 * `just` **1.58.0** at `~/.local/bin/just` — the development version.
 * `just` **1.21.0** at `/usr/bin/just` (apt) — kept deliberately as an old-version test target.
   It fails hard on `[group]`, which makes it a good fixture for version-gating tests.
-* Minimum `just` the extension supports: **1.27.0**. Minimum VS Code: **1.85.0**.
+* Minimum `just` the extension supports: **1.27.0**. Minimum VS Code: **1.101.0** — the first
+  release whose extension host runs Node 22 (Electron 35).
+* `@types/node` tracks the **extension host's** Node (22), not the toolchain's. Building and
+  testing on Node 24 is deliberate and unrelated. Never bump `@types/node` past the host:
+  TypeScript then accepts calls the host does not have, and it fails silently at runtime
+  rather than in CI. Dependabot is configured to skip its major bumps.
 
 ## Conventions
 
