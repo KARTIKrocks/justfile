@@ -115,6 +115,28 @@ class Parser {
         return this.peek().kind === kind;
     }
 
+    /**
+     * The span from `from` through the last token actually consumed.
+     *
+     * `spanBetween(from, this.peek().span)` reads naturally and is wrong: peek
+     * is the next *unconsumed* token, so the span swallows the first token of
+     * whatever follows. A recipe then covers the name of the recipe below it,
+     * every item's range overlaps its neighbour's, and anything that asks "what
+     * is at this position" can get the wrong answer.
+     *
+     * Zero-width tokens are skipped so a span ends at real text rather than at
+     * an indent or dedent marker.
+     */
+    private spanThrough(from: Span): Span {
+        for (let i = this.index - 1; i >= 0; i--) {
+            const token = this.tokens[i];
+            if (token !== undefined && token.span.length > 0) {
+                return spanBetween(from, token.span);
+            }
+        }
+        return from;
+    }
+
     private atKeyword(word: string): boolean {
         const token = this.peek();
         return token.kind === TokenKind.Identifier && token.text === word;
@@ -439,7 +461,7 @@ class Parser {
         }
         return {
             kind: "attribute",
-            span: spanBetween(start, this.peek().span),
+            span: this.spanThrough(start),
             name,
             args,
         };
@@ -485,7 +507,7 @@ class Parser {
 
         const base = {
             kind: "recipe",
-            span: spanBetween(startToken.span, this.peek().span),
+            span: this.spanThrough(startToken.span),
             name,
             attributes,
             parameters,
@@ -512,7 +534,7 @@ class Parser {
         if (this.eat(TokenKind.Equals) !== undefined) {
             defaultValue = this.parseExpression();
         }
-        const span = spanBetween(start, this.peek().span);
+        const span = this.spanThrough(start);
         return defaultValue === undefined
             ? { kind: "parameter", span, name, parameterKind, exported }
             : { kind: "parameter", span, name, parameterKind, exported, default: defaultValue };
@@ -533,7 +555,7 @@ class Parser {
             this.expect(TokenKind.ParenR, "`)`");
             return {
                 kind: "dependency",
-                span: spanBetween(start, this.peek().span),
+                span: this.spanThrough(start),
                 name,
                 args,
             };
@@ -597,7 +619,7 @@ class Parser {
         if (!closed) {
             this.error("unterminated `{{`", start);
         }
-        const span = spanBetween(start, this.peek().span);
+        const span = this.spanThrough(start);
         return expression === undefined
             ? { kind: "interpolation", span, unterminated: !closed }
             : { kind: "interpolation", span, expression, unterminated: !closed };

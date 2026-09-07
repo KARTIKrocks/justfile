@@ -58,6 +58,95 @@ describe("parser totality", () => {
     });
 });
 
+describe("item spans", () => {
+    /** The source each item's span actually covers. */
+    const covers = (source: string): string[] =>
+        parse(source).items.map((item) =>
+            source.slice(item.span.offset, item.span.offset + item.span.length),
+        );
+
+    it("stops an item before the next one begins", () => {
+        // A span built from the next *unconsumed* token swallows that token, so
+        // every item covered the first character of its neighbour. Nothing
+        // noticed: the dump carries no spans, so the differential suite cannot
+        // see this, and it only shows up once a feature uses a range.
+        expect(covers("a:\n    echo a\nb:\n    echo b\n")).toEqual([
+            "a:\n    echo a\n",
+            "b:\n    echo b\n",
+        ]);
+    });
+
+    it("never lets two items overlap", () => {
+        const source = `set shell := ["bash"]
+x := "1"
+
+[group('g')]
+build target="d": dep
+    echo {{ target }}
+
+alias b := build
+mod sub
+`;
+        const items = parse(source).items;
+        for (let i = 1; i < items.length; i++) {
+            const previous = items[i - 1];
+            const current = items[i];
+            if (previous === undefined || current === undefined) {
+                continue;
+            }
+            expect(
+                current.span.offset,
+                `item ${i} starts inside item ${i - 1}`,
+            ).toBeGreaterThanOrEqual(previous.span.offset + previous.span.length);
+        }
+    });
+
+    it("keeps every span inside the document", () => {
+        const source = 'x := "1"\nbuild:\n    echo hi\n';
+        for (const item of parse(source).items) {
+            expect(item.span.offset + item.span.length).toBeLessThanOrEqual(source.length);
+        }
+    });
+
+    it("covers a one-line item exactly", () => {
+        expect(covers('x := "1"\n')).toEqual(['x := "1"\n']);
+        expect(covers("set quiet\n")).toEqual(["set quiet\n"]);
+        expect(covers("alias b := build\n")).toEqual(["alias b := build\n"]);
+    });
+
+    it("holds at every truncation", () => {
+        const source = 'x := "1"\nbuild p="q": dep\n    echo {{ p }}\nalias b := build\n';
+        for (let i = 0; i <= source.length; i++) {
+            const prefix = source.slice(0, i);
+            for (const item of parse(prefix).items) {
+                expect(item.span.offset, `truncation ${i}`).toBeGreaterThanOrEqual(0);
+                expect(item.span.offset + item.span.length, `truncation ${i}`).toBeLessThanOrEqual(
+                    prefix.length,
+                );
+            }
+        }
+    });
+
+    it("keeps a parameter's span off the colon that ends the signature", () => {
+        const source = "build target:\n    echo hi\n";
+        const recipe = parse(source).items[0];
+        expect(recipe?.kind).toBe("recipe");
+        if (recipe?.kind !== "recipe") {
+            return;
+        }
+        const parameter = recipe.parameters[0];
+        expect(parameter).toBeDefined();
+        if (parameter === undefined) {
+            return;
+        }
+        const text = source.slice(
+            parameter.span.offset,
+            parameter.span.offset + parameter.span.length,
+        );
+        expect(text).toBe("target");
+    });
+});
+
 describe("recovery around unterminated strings", () => {
     it("still finds the recipe below an EOF-unterminated string", () => {
         const model = modelFromSource('broken := "oops\n\nbuild:\n    echo hi\n');
