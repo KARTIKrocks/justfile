@@ -17,9 +17,10 @@ function contextOf(): { subscriptions: { dispose(): void }[] } {
 beforeEach(resetStub);
 
 describe("activate", () => {
-    it("registers the semantic token provider", () => {
+    it("registers the Tier 1 providers", () => {
         activate(contextOf() as never);
         expect(recorded.semanticTokenProviders).toHaveLength(1);
+        expect(recorded.documentSymbolProviders).toHaveLength(1);
     });
 
     it("parses nothing until something asks", () => {
@@ -40,8 +41,8 @@ describe("activate", () => {
     it("puts everything it creates under the context's disposal", () => {
         const context = contextOf();
         activate(context as never);
-        // Output channel, close listener, provider, trust listener.
-        expect(context.subscriptions.length).toBeGreaterThanOrEqual(4);
+        // Output channel, close listener, the providers, trust listener.
+        expect(context.subscriptions.length).toBeGreaterThanOrEqual(5);
         for (const subscription of context.subscriptions) {
             expect(() => subscription.dispose()).not.toThrow();
         }

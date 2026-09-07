@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import { ParseCache } from "./model/cache.js";
+import { registerDocumentSymbols } from "./providers/documentSymbols.js";
 import { forgetClosedDocuments } from "./providers/documents.js";
 import { registerSemanticTokens } from "./providers/semanticTokens.js";
 
@@ -29,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Registering a provider does not run it, so this stays within the budget.
     registerSemanticTokens(context, cache);
+    registerDocumentSymbols(context, cache);
 
     // Trust can be granted mid-session, so it is read at call time rather than
     // captured here. This listener exists to light up Tier 2 when that happens.
