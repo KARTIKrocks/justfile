@@ -53,7 +53,7 @@ jobs:
       - run: npm run test:diff
 
   bundle:
-    name: Bundle size and activation budget
+    name: Bundle size and dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
