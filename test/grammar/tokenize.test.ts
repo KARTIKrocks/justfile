@@ -167,6 +167,76 @@ describe("recipes", () => {
     });
 });
 
+describe("expressions that span lines", () => {
+    // just accepts both of these. An expression that stops highlighting at the
+    // first newline leaves the rest of the value looking like plain text.
+    const ARRAY = 'set shell := [\n  "bash",\n  "-c"\n]\n\nfoo:\n    echo hi\n';
+    const PAREN = 'x := (\n  "a"\n)\n\nfoo:\n    echo hi\n';
+
+    it("keeps highlighting a setting's array across lines", async () => {
+        expect(await scopesAt(ARRAY, '"bash"')).toContain("string.quoted.double.just");
+        expect(await scopesAt(ARRAY, '"-c"')).toContain("string.quoted.double.just");
+        expect(await scopesAt(ARRAY, "]")).toContain("meta.brace.square.just");
+    });
+
+    it("keeps highlighting a parenthesised assignment across lines", async () => {
+        expect(await scopesAt(PAREN, '"a"')).toContain("string.quoted.double.just");
+    });
+
+    it("still ends the item, so the recipe below is still a recipe", async () => {
+        for (const source of [ARRAY, PAREN]) {
+            const scopes = await scopesAt(source, "foo:");
+            expect(scopes).toContain("entity.name.function.just");
+            expect(scopes).not.toContain("meta.setting.just");
+            expect(scopes).not.toContain("meta.assignment.just");
+        }
+    });
+
+    it("gives up on a group that never closes rather than eating the file", async () => {
+        // One stray bracket while typing must not drag every recipe below it
+        // into the expression.
+        for (const source of [
+            "x := foo(\n\nbuild:\n    echo hi\n",
+            "set shell := [\n\nbuild:\n    echo hi\n",
+        ]) {
+            expect(await scopesAt(source, "build:")).toContain("entity.name.function.just");
+        }
+    });
+
+    it("lets a double-quoted string run on, because just does too", async () => {
+        // `a := "one\ntwo"` is one assignment as far as just is concerned, so an
+        // unterminated string swallowing what follows is the honest rendering.
+        const source = 'x := "oops\n\nbuild:\n    echo hi\n';
+        expect(await scopesAt(source, "build:")).toContain("string.quoted.double.just");
+    });
+});
+
+describe("settings", () => {
+    it("scopes the assignment operator", async () => {
+        expect(await scopesAt("set dotenv-load := true\n", ":=")).toContain(
+            "keyword.operator.assignment.just",
+        );
+    });
+
+    it("treats true and false as literals in a setting", async () => {
+        expect(await scopesAt("set dotenv-load := true\n", "true")).toContain(
+            "constant.language.boolean.just",
+        );
+        expect(await scopesAt("set quiet := false\n", "false")).toContain(
+            "constant.language.boolean.just",
+        );
+    });
+
+    it("treats true as an ordinary name everywhere else", async () => {
+        // Verified against just 1.58.0: `x := true` is "variable `true` not
+        // defined", and `true := "x"` is a legal assignment. There is no boolean
+        // literal in the expression grammar.
+        const scopes = await scopesAt("x := true\n", "true");
+        expect(scopes).toContain("variable.other.just");
+        expect(scopes).not.toContain("constant.language.boolean.just");
+    });
+});
+
 describe("things that must not be mistaken for something else", () => {
     it("does not read an assignment as a recipe", async () => {
         expect(await scopesAt("x := y\n", "x")).toContain("variable.other.assignment.just");
@@ -210,6 +280,16 @@ describe("things that must not be mistaken for something else", () => {
         expect(await scopesAt(source, "still inside")).toContain(
             "string.quoted.triple.double.just",
         );
+    });
+
+    it("sees a CRLF file the way VS Code presents it", async () => {
+        // VS Code tokenises line content with the terminator stripped, so a
+        // carriage return never reaches the grammar and no rule needs to allow
+        // for one. The helper has to imitate that or it tests a different thing.
+        const source = "build:\r\n    echo hi\r\n\r\ntest: build\r\n    echo t\r\n";
+        expect(await scopesAt(source, "test:")).toContain("entity.name.function.just");
+        const body = await tokenize(source);
+        expect(body.every((t) => !t.text.includes("\r"))).toBe(true);
     });
 
     it("scopes a backtick command as a string, not as shell", async () => {

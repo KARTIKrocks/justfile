@@ -185,7 +185,9 @@ export async function tokenize(source: string): Promise<ScopedToken[]> {
     const grammar = await engine();
     const out: ScopedToken[] = [];
     let stack = INITIAL;
-    const lines = source.split("\n");
+    // VS Code tokenises line content with the terminator already stripped, so a
+    // CRLF file never shows the engine a `\r`. Splitting on `\n` alone would.
+    const lines = source.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
     for (let line = 0; line < lines.length; line++) {
         const text = lines[line] ?? "";
         const result = grammar.tokenizeLine(text, stack);

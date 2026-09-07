@@ -93,11 +93,18 @@
           "name": "support.type.property-name.just"
         }
       },
-      "end": "(?<!\\\\)$",
+      "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
       "name": "meta.setting.just",
       "patterns": [
         {
           "include": "#comment"
+        },
+        {
+          "match": ":=",
+          "name": "keyword.operator.assignment.just"
+        },
+        {
+          "include": "#boolean"
         },
         {
           "include": "#expression"
@@ -193,7 +200,7 @@
               "name": "keyword.operator.assignment.just"
             }
           },
-          "end": "(?<!\\\\)$",
+          "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
           "name": "meta.assignment.just",
           "patterns": [
             {
@@ -216,7 +223,7 @@
           "name": "keyword.operator.assignment.just"
         }
       },
-      "end": "(?<!\\\\)$",
+      "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
       "name": "meta.assignment.just",
       "patterns": [
         {
@@ -390,6 +397,15 @@
           "include": "#function-call"
         },
         {
+          "include": "#group-paren"
+        },
+        {
+          "include": "#group-bracket"
+        },
+        {
+          "include": "#group-brace"
+        },
+        {
           "include": "#operator"
         },
         {
@@ -431,24 +447,8 @@
       ]
     },
     "punctuation": {
-      "patterns": [
-        {
-          "match": "[()]",
-          "name": "meta.brace.round.just"
-        },
-        {
-          "match": "[{}]",
-          "name": "punctuation.section.block.just"
-        },
-        {
-          "match": "[\\[\\]]",
-          "name": "meta.brace.square.just"
-        },
-        {
-          "match": ",",
-          "name": "punctuation.separator.just"
-        }
-      ]
+      "match": ",",
+      "name": "punctuation.separator.just"
     },
     "variable": {
       "match": "(?<![A-Za-z0-9_-])[A-Za-z_][A-Za-z0-9_-]*(?![A-Za-z0-9_-])",
@@ -596,6 +596,70 @@
           "match": "\\\\$"
         }
       ]
+    },
+    "group-paren": {
+      "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
+      "begin": "\\(",
+      "end": "\\)|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "beginCaptures": {
+        "0": {
+          "name": "meta.brace.round.just"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "meta.brace.round.just"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "group-bracket": {
+      "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
+      "begin": "\\[",
+      "end": "\\]|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "beginCaptures": {
+        "0": {
+          "name": "meta.brace.square.just"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "meta.brace.square.just"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "group-brace": {
+      "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
+      "begin": "\\{",
+      "end": "\\}|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.just"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.just"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "boolean": {
+      "match": "(?<![A-Za-z0-9_-])(true|false)(?![A-Za-z0-9_-])",
+      "name": "constant.language.boolean.just"
     }
   }
 }
