@@ -93,9 +93,12 @@
           "name": "support.type.property-name.just"
         }
       },
-      "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "name": "meta.setting.just",
       "patterns": [
+        {
+          "include": "#continuation"
+        },
         {
           "include": "#comment"
         },
@@ -177,7 +180,7 @@
       "comment": "`unexport` takes a bare name; `export` takes a full assignment.",
       "patterns": [
         {
-          "match": "^[ \\t]*(unexport)[ \\t]+([A-Za-z_][A-Za-z0-9_-]*)[ \\t]*$",
+          "match": "^[ \\t]*(unexport)[ \\t]+([A-Za-z_][A-Za-z0-9_-]*)",
           "captures": {
             "1": {
               "name": "storage.modifier.export.just"
@@ -200,9 +203,12 @@
               "name": "keyword.operator.assignment.just"
             }
           },
-          "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+          "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
           "name": "meta.assignment.just",
           "patterns": [
+            {
+              "include": "#continuation"
+            },
             {
               "include": "#comment"
             },
@@ -223,9 +229,12 @@
           "name": "keyword.operator.assignment.just"
         }
       },
-      "end": "(?<!\\\\)$|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "name": "meta.assignment.just",
       "patterns": [
+        {
+          "include": "#continuation"
+        },
         {
           "include": "#comment"
         },
@@ -307,9 +316,7 @@
           "include": "#interpolation"
         },
         {
-          "comment": "A trailing backslash continues the line into the next one.",
-          "name": "punctuation.separator.continuation.just",
-          "match": "\\\\$"
+          "include": "#continuation"
         }
       ]
     },
@@ -353,11 +360,27 @@
           "name": "keyword.operator.logical.just"
         },
         {
-          "include": "#string"
-        },
-        {
-          "match": "[()]",
-          "name": "punctuation.section.dependency.just"
+          "comment": "A dependency with arguments. The name is a recipe; everything after it is an expression, and colouring those as recipes too would make the colour useless for telling them apart.",
+          "begin": "(\\()[ \\t]*([A-Za-z_][A-Za-z0-9_-]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.section.dependency.just"
+            },
+            "2": {
+              "name": "entity.name.function.just"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.dependency.just"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expression"
+            }
+          ]
         },
         {
           "match": "[A-Za-z_][A-Za-z0-9_-]*",
@@ -600,7 +623,7 @@
     "group-paren": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\(",
-      "end": "\\)|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "end": "\\)|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "meta.brace.round.just"
@@ -620,7 +643,7 @@
     "group-bracket": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\[",
-      "end": "\\]|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "end": "\\]|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "meta.brace.square.just"
@@ -640,7 +663,7 @@
     "group-brace": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\{",
-      "end": "\\}|(?=^[ \\t]*(?:\\[[A-Za-z_]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*(?::=|:(?!=))))",
+      "end": "\\}|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "punctuation.section.block.just"
@@ -660,6 +683,11 @@
     "boolean": {
       "match": "(?<![A-Za-z0-9_-])(true|false)(?![A-Za-z0-9_-])",
       "name": "constant.language.boolean.just"
+    },
+    "continuation": {
+      "comment": "A trailing backslash continues the line into the next one.",
+      "match": "\\\\$",
+      "name": "punctuation.separator.continuation.just"
     }
   }
 }

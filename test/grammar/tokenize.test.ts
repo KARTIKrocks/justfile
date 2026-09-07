@@ -55,6 +55,15 @@ describe("top-level items", () => {
         expect(await scopesAt(SAMPLE, "dotenv-load")).toContain("support.type.property-name.just");
     });
 
+    it("scopes an unexport that carries a trailing comment", async () => {
+        // just accepts `unexport FOO # note`, so the rule cannot demand that the
+        // name be the last thing on the line.
+        const source = "unexport FOO # note\n";
+        expect(await scopesAt(source, "unexport")).toContain("storage.modifier.export.just");
+        expect(await scopesAt(source, "FOO")).toContain("variable.other.assignment.just");
+        expect(await scopesAt(source, "# note")).toContain("comment.line.number-sign.just");
+    });
+
     it("scopes an exported assignment", async () => {
         expect(await scopesAt(SAMPLE, "export VERSION")).toContain("storage.modifier.export.just");
         expect(await scopesAt(SAMPLE, "VERSION")).toContain("variable.other.assignment.just");
@@ -194,12 +203,29 @@ describe("expressions that span lines", () => {
 
     it("gives up on a group that never closes rather than eating the file", async () => {
         // One stray bracket while typing must not drag every recipe below it
-        // into the expression.
-        for (const source of [
-            "x := foo(\n\nbuild:\n    echo hi\n",
-            "set shell := [\n\nbuild:\n    echo hi\n",
-        ]) {
-            expect(await scopesAt(source, "build:")).toContain("entity.name.function.just");
+        // into the expression. Every shape that starts a new item has to break
+        // out, not just a parameterless recipe header, so each is checked for
+        // the scope it should have recovered to.
+        const next: [string, string, string][] = [
+            ["build:\n    echo hi\n", "build:", "entity.name.function.just"],
+            ["build target:\n    echo hi\n", "build target", "entity.name.function.just"],
+            [
+                "[private]\nfoo:\n    echo hi\n",
+                "[private]",
+                "punctuation.definition.attribute.begin.just",
+            ],
+            ['export FOO := "y"\n', "export FOO", "storage.modifier.export.just"],
+            ["unexport FOO\n", "unexport FOO", "storage.modifier.export.just"],
+            ["alias b := foo\n", "alias b", "keyword.other.alias.just"],
+            ['import "a.just"\n', "import ", "keyword.control.import.just"],
+            ["mod sub\n", "mod sub", "keyword.control.import.module.just"],
+            ['other := "z"\n', "other :=", "variable.other.assignment.just"],
+        ];
+        for (const opener of ["x := foo(\n\n", "set shell := [\n\n"]) {
+            for (const [tail, needle, expected] of next) {
+                const where = `${JSON.stringify(needle)} after ${JSON.stringify(opener.trim())}`;
+                expect(await scopesAt(opener + tail, needle), where).toContain(expected);
+            }
         }
     });
 
@@ -208,6 +234,47 @@ describe("expressions that span lines", () => {
         // unterminated string swallowing what follows is the honest rendering.
         const source = 'x := "oops\n\nbuild:\n    echo hi\n';
         expect(await scopesAt(source, "build:")).toContain("string.quoted.double.just");
+    });
+});
+
+describe("line continuation", () => {
+    // `x := "a" + \` then `  "b"` dumps as `x := "a" + "b"`, so the expression
+    // really does carry on. vscode-textmate appends a newline to every line
+    // before matching, so an end pattern has to exclude that newline as well as
+    // the backslash, or it closes the item anyway and the next line goes bare.
+    const ASSIGN = 'x := "a" + \\\n  "b"\n\nfoo:\n    echo hi\n';
+    const SETTING = 'set dotenv-path := "a" + \\\n  "b"\n';
+
+    it("carries an assignment onto the continued line", async () => {
+        const scopes = await scopesAt(ASSIGN, '"b"');
+        expect(scopes).toContain("string.quoted.double.just");
+        expect(scopes).toContain("meta.assignment.just");
+    });
+
+    it("carries a setting onto the continued line", async () => {
+        const scopes = await scopesAt(SETTING, '"b"');
+        expect(scopes).toContain("string.quoted.double.just");
+        expect(scopes).toContain("meta.setting.just");
+    });
+
+    it("scopes the backslash itself", async () => {
+        expect(await scopesAt(ASSIGN, "\\")).toContain("punctuation.separator.continuation.just");
+    });
+
+    it("still ends at the item after the continued line", async () => {
+        expect(await scopesAt(ASSIGN, "foo:")).toContain("entity.name.function.just");
+    });
+});
+
+describe("dependencies with arguments", () => {
+    it("scopes only the head as a recipe, not its arguments", async () => {
+        // Confirmed by running it: `test: (b v)` passes the variable v. Colouring
+        // an argument as a recipe makes the colour useless for telling them apart.
+        const source = 'v := "val"\nb arg:\n    echo hi\n\ntest: (b v)\n    echo t\n';
+        expect(await scopesAt(source, "b v")).toContain("entity.name.function.just");
+        const arg = await scopesAt(source, "v)");
+        expect(arg).toContain("variable.other.just");
+        expect(arg).not.toContain("entity.name.function.just");
     });
 });
 
