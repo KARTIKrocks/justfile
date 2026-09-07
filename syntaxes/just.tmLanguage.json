@@ -93,7 +93,7 @@
           "name": "support.type.property-name.just"
         }
       },
-      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "name": "meta.setting.just",
       "patterns": [
         {
@@ -132,8 +132,8 @@
       }
     },
     "import": {
-      "comment": "`import?` is an optional import: a missing file is not an error.",
-      "begin": "^[ \\t]*(import)(\\?)?",
+      "comment": "`import?` is an optional import: a missing file is not an error. The trailing space matters, or a recipe named `import` reads as a keyword.",
+      "begin": "^[ \\t]*(import)(\\?)?[ \\t]",
       "beginCaptures": {
         "1": {
           "name": "keyword.control.import.just"
@@ -153,8 +153,8 @@
       ]
     },
     "module": {
-      "comment": "`mod name`, `mod name \"path\"`, and the optional form `mod? name`.",
-      "begin": "^[ \\t]*(mod)(\\?)?[ \\t]+([A-Za-z_][A-Za-z0-9_-]*)",
+      "comment": "`mod name`, `mod name \"path\"`, and the optional `mod? name` — which just also accepts written tight, as `mod?name`.",
+      "begin": "^[ \\t]*(mod)(?:(\\?)[ \\t]*|[ \\t]+)([A-Za-z_][A-Za-z0-9_-]*)",
       "beginCaptures": {
         "1": {
           "name": "keyword.control.import.module.just"
@@ -203,7 +203,7 @@
               "name": "keyword.operator.assignment.just"
             }
           },
-          "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+          "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
           "name": "meta.assignment.just",
           "patterns": [
             {
@@ -229,7 +229,7 @@
           "name": "keyword.operator.assignment.just"
         }
       },
-      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+      "end": "(?<![\\\\\\n])$|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "name": "meta.assignment.just",
       "patterns": [
         {
@@ -623,7 +623,7 @@
     "group-paren": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\(",
-      "end": "\\)|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+      "end": "\\)|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "meta.brace.round.just"
@@ -643,7 +643,7 @@
     "group-bracket": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\[",
-      "end": "\\]|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+      "end": "\\]|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "meta.brace.square.just"
@@ -663,7 +663,7 @@
     "group-brace": {
       "comment": "A bracketed group holds the parent expression open across lines: while this rule is on the stack the parent's end-of-line is not tested, which is how a multi-line array or a parenthesised expression keeps its highlighting.",
       "begin": "\\{",
-      "end": "\\}|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|import|mod|export|unexport)[ \\t]|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
+      "end": "\\}|(?=^[ \\t]*(?:\\[[A-Za-z_]|(?:set|alias|export|unexport)[ \\t]|import\\??[ \\t]|mod(?:[ \\t]|\\?[ \\t]*[A-Za-z_])|@?[A-Za-z_][A-Za-z0-9_-]*[ \\t]*:=|@?[A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n\\'\"]|\\'[^\\'\\n]*\\'|\"[^\"\\n]*\")*:(?!=)))",
       "beginCaptures": {
         "0": {
           "name": "punctuation.section.block.just"

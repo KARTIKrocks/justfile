@@ -88,6 +88,14 @@ describe("top-level items", () => {
         expect(await scopesAt(SAMPLE, '"extra.just"')).toContain("string.quoted.double.just");
     });
 
+    it("scopes an optional module written tight", async () => {
+        // just accepts `mod?sub` with no space, though `mod sub` still needs one.
+        const source = "mod?sub\n";
+        expect(await scopesAt(source, "mod")).toContain("keyword.control.import.module.just");
+        expect(await scopesAt(source, "?")).toContain("keyword.operator.optional.just");
+        expect(await scopesAt(source, "sub")).toContain("entity.name.namespace.just");
+    });
+
     it("scopes a module and its path", async () => {
         expect(await scopesAt(SAMPLE, "mod")).toContain("keyword.control.import.module.just");
         expect(await scopesAt(SAMPLE, "docs ")).toContain("entity.name.namespace.just");
@@ -218,7 +226,10 @@ describe("expressions that span lines", () => {
             ["unexport FOO\n", "unexport FOO", "storage.modifier.export.just"],
             ["alias b := foo\n", "alias b", "keyword.other.alias.just"],
             ['import "a.just"\n', "import ", "keyword.control.import.just"],
+            ['import? "a.just"\n', "import?", "keyword.control.import.just"],
             ["mod sub\n", "mod sub", "keyword.control.import.module.just"],
+            ["mod? sub\n", "mod? sub", "keyword.control.import.module.just"],
+            ["mod?sub\n", "mod?sub", "keyword.control.import.module.just"],
             ['other := "z"\n', "other :=", "variable.other.assignment.just"],
         ];
         for (const opener of ["x := foo(\n\n", "set shell := [\n\n"]) {
@@ -321,9 +332,16 @@ describe("things that must not be mistaken for something else", () => {
         expect(await scopesAt(source, "# note")).toContain("comment.line.number-sign.just");
     });
 
-    it("allows a recipe named after a keyword", async () => {
-        // `set` is not reserved: just accepts it as a recipe name.
-        expect(await scopesAt("set:\n    echo hi\n", "set")).toContain("entity.name.function.just");
+    it("allows a recipe named after any keyword", async () => {
+        // None of these are reserved: just accepts every one as a recipe name.
+        // A keyword rule that does not insist on what follows it claims the name
+        // instead, which is how `import:` came to read as an import.
+        for (const keyword of ["set", "alias", "import", "mod", "export", "unexport"]) {
+            expect(
+                await scopesAt(`${keyword}:\n    echo hi\n`, keyword),
+                `recipe named ${keyword}`,
+            ).toContain("entity.name.function.just");
+        }
     });
 
     it("resolves escapes only in cooked strings", async () => {
