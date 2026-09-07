@@ -136,5 +136,16 @@ just difftest     # differential tests only, against the just CLI
 
 ## Pull requests
 
-Small and single-purpose. A PR that changes parser output must show the differential suite
-passing. Never commit or push unless asked.
+**Every change goes through a pull request. Never commit to `main`, and never push to `main`
+directly** — branch, push the branch, open a PR, let CI and review run. This holds for one-line
+fixes and for docs.
+
+Branch names follow the commit type: `feat/...`, `fix/...`, `chore/...`, `docs/...`.
+
+Keep PRs small and single-purpose. A PR that changes parser output must show the differential
+suite passing and must add or update a fixture.
+
+Greptile reviews every PR against the invariants above; its configuration lives in `.greptile/`.
+If it flags an invariant violation, fix the code — do not argue the rule away in a comment. If
+the rule itself is wrong, change `.greptile/config.json` in a separate PR so the change is
+visible and reviewed.

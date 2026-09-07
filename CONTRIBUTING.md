@@ -14,7 +14,9 @@ just check
 
 ## Branching and commits
 
-Work on a branch off `main`. Never commit to `main` directly.
+**Every change goes through a pull request** — branch off `main`, push the branch, open a PR.
+Never commit or push to `main` directly, not even for docs or a one-line fix. Branch names
+follow the commit type: `feat/...`, `fix/...`, `chore/...`, `docs/...`.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
 
@@ -35,9 +37,16 @@ are derived from commit history, so the type you pick determines the next versio
 Small and single-purpose. A PR that changes what the parser produces must show the
 differential suite passing — CI enforces this, but check locally first with `just difftest`.
 
-Every PR runs: typecheck, Biome lint and format check, unit tests, differential tests against a matrix of `just`
-versions, integration tests on Linux/macOS/Windows, and the bundle-size and activation-time
-budgets. All of them are required.
+Every PR runs: typecheck, Biome lint and format check, unit tests, differential tests against a
+matrix of `just` versions, and the bundle-size and zero-runtime-dependency checks. All of them
+are required.
+
+[Greptile](https://www.greptile.com) also reviews every PR against this repository's
+architectural invariants. Its configuration lives in `.greptile/` — `config.json` holds the
+structured rules, `rules.md` explains the reasoning behind them, and `files.json` points the
+reviewer at the docs it needs for context. If Greptile flags an invariant violation, fix the
+code. If you believe the rule itself is wrong, change it in a separate PR so the change is
+visible and reviewed rather than argued away in a thread.
 
 ## The rules that are not negotiable
 
