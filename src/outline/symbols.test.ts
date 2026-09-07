@@ -255,6 +255,66 @@ alias c := compile
     });
 });
 
+describe("headings do not reach over unrelated items", () => {
+    // Grouping is by attribute, so members need not sit next to each other.
+    // VS Code answers "which symbol is the cursor in" by descending into the
+    // first symbol whose range contains the position, so a heading stretching
+    // over an item that is not under it makes the breadcrumb name the wrong
+    // thing entirely.
+    const encloses = (outer: OutlineSymbol, inner: OutlineSymbol): boolean =>
+        inner.range.offset >= outer.range.offset &&
+        inner.range.offset + inner.range.length <= outer.range.offset + outer.range.length;
+
+    const noHeadingEnclosesASibling = (source: string): void => {
+        const symbols = outlineOf(source);
+        for (const heading of symbols.filter((s) => s.children.length > 0)) {
+            for (const other of symbols) {
+                if (other !== heading) {
+                    expect(encloses(heading, other), `${heading.name} encloses ${other.name}`).toBe(
+                        false,
+                    );
+                }
+            }
+        }
+    };
+
+    it("cuts a heading short at an assignment interleaved with recipes", () => {
+        noHeadingEnclosesASibling('a := "1"\n\nbuild:\n    echo b\n\nb := "2"\n');
+    });
+
+    it("cuts a heading short at a recipe interleaved with a group", () => {
+        noHeadingEnclosesASibling(
+            "[group('g')]\none:\n    echo 1\n\ntwo:\n    echo 2\n\n[group('g')]\nthree:\n    echo 3\n",
+        );
+    });
+
+    it("leaves a heading alone when its members are contiguous", () => {
+        // The common shape — settings and variables at the top, then recipes —
+        // must not lose anything to the clamp.
+        const symbols = outlineOf('a := "1"\nb := "2"\n\nbuild:\n    echo b\n');
+        const variables = named(symbols, "Variables");
+        const last = variables.children[variables.children.length - 1];
+        expect(last).toBeDefined();
+        if (last === undefined) {
+            return;
+        }
+        expect(variables.range.offset + variables.range.length).toBeGreaterThanOrEqual(
+            last.range.offset + last.range.length,
+        );
+    });
+
+    it("always keeps its first member", () => {
+        const symbols = outlineOf('a := "1"\n\nbuild:\n    echo b\n\nb := "2"\n');
+        const variables = named(symbols, "Variables");
+        const first = variables.children[0];
+        expect(first).toBeDefined();
+        if (first === undefined) {
+            return;
+        }
+        expect(encloses(variables, first)).toBe(true);
+    });
+});
+
 describe("totality", () => {
     it("returns nothing for an empty document", () => {
         expect(outlineOf("")).toEqual([]);

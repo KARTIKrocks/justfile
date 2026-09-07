@@ -243,5 +243,38 @@ export function outline(model: JustfileModel, labels: OutlineLabels): OutlineSym
     // Source order, so the outline reads like the file. VS Code can re-sort by
     // name if the user prefers; it cannot recover position if we lose it.
     symbols.sort((a, b) => a.range.offset - b.range.offset);
-    return symbols;
+    return clampHeadings(symbols);
+}
+
+/**
+ * Stop a heading's range reaching over items that are not under it.
+ *
+ * A heading spans its members, but grouping is by attribute and the members
+ * need not be next to each other. Interleave an assignment with recipes, or two
+ * groups with each other, and a heading ends up enclosing a top-level sibling
+ * that is nothing to do with it. VS Code resolves "which symbol is the cursor
+ * in" by descending into the first symbol whose range contains the position, so
+ * it would answer `Variables` for a cursor sitting in a recipe.
+ *
+ * Cutting the heading short at the next unrelated item means the answer is
+ * sometimes nothing rather than sometimes wrong, which is the trade this
+ * codebase makes everywhere else. A heading always keeps its first member,
+ * since no sibling can start before that member ends.
+ */
+function clampHeadings(symbols: readonly OutlineSymbol[]): OutlineSymbol[] {
+    return symbols.map((symbol, index) => {
+        if (symbol.children.length === 0) {
+            return symbol;
+        }
+        let end = symbol.range.offset + symbol.range.length;
+        for (let other = index + 1; other < symbols.length; other++) {
+            const next = symbols[other];
+            if (next !== undefined && next.range.offset > symbol.range.offset) {
+                end = Math.min(end, next.range.offset);
+                break;
+            }
+        }
+        const range = { offset: symbol.range.offset, length: end - symbol.range.offset };
+        return { ...symbol, range, selectionRange: range };
+    });
 }
