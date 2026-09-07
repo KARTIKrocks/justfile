@@ -12,6 +12,8 @@ The invariants in `AGENTS.md` govern this repository. What follows is Claude Cod
   1.58.0; `/usr/bin/just` is 1.21.0 and is there on purpose for version-gating tests.
 * When our parser disagrees with `just --dump`, fix the parser. `just` is the oracle.
 * Don't add runtime dependencies. Activation cost is a CI-enforced budget, not a preference.
+* Never commit or push to `main`. Every change is a branch plus a pull request, including
+  docs and one-line fixes.
 
 ## Slash commands
 

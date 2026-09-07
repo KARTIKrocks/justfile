@@ -66,7 +66,19 @@ highlighting, outline, and completion.
 ### 5. Activation stays cheap
 
 Zero runtime dependencies. Activation must not spawn a process, read a file, or block on I/O.
-Targets enforced in CI: activation under 50 ms, bundle under 300 KB.
+
+Two of these are machine-checked, one is not:
+
+| Budget | How it is enforced |
+|---|---|
+| Bundle under 300 KB | CI — `node esbuild.mjs --production` fails over the limit |
+| Zero runtime dependencies | CI — the `bundle` job fails on any entry in `dependencies` |
+| Activation under 50 ms | **Review only.** Not yet measured anywhere |
+
+Measuring activation time needs a VS Code integration harness (`@vscode/test-cli`) that does not
+exist yet. Until it does, nothing will stop you from making activation slow — so treat any I/O,
+subprocess, top-level `await`, or large table construction reachable from `activate()` as a
+defect, even though CI stays green.
 
 ### 6. All user-facing strings go through `vscode.l10n`
 
@@ -136,5 +148,16 @@ just difftest     # differential tests only, against the just CLI
 
 ## Pull requests
 
-Small and single-purpose. A PR that changes parser output must show the differential suite
-passing. Never commit or push unless asked.
+**Every change goes through a pull request. Never commit to `main`, and never push to `main`
+directly** — branch, push the branch, open a PR, let CI and review run. This holds for one-line
+fixes and for docs.
+
+Branch names follow the commit type: `feat/...`, `fix/...`, `chore/...`, `docs/...`.
+
+Keep PRs small and single-purpose. A PR that changes parser output must show the differential
+suite passing and must add or update a fixture.
+
+Greptile reviews every PR against the invariants above; its configuration lives in `.greptile/`.
+If it flags an invariant violation, fix the code — do not argue the rule away in a comment. If
+the rule itself is wrong, change `.greptile/config.json` in a separate PR so the change is
+visible and reviewed.
