@@ -66,9 +66,37 @@ export interface Comparable {
      * the defaults for the same binary — see `explicitSettings`.
      */
     readonly settings: readonly string[];
+    /**
+     * The values of the string-list settings, keyed as the dump spells them.
+     *
+     * This is the only place a setting's *value* is compared, and it exists
+     * because it is the only setting value both sides can know without
+     * evaluating anything. It is what gives a list literal real coverage here:
+     * the dump reports `shell` as `{command, arguments}`, so a parser that
+     * dropped an element or split them wrongly disagrees.
+     *
+     * One asymmetry to know about, shared with `settings`. The dump reports
+     * only settings whose value differs from the default, because nothing in it
+     * says which ones the file wrote; our side reports every list it read.
+     * `set shell := ["sh", "-cu"]` in a fixture therefore *fails* the suite
+     * rather than comparing nothing, and the failure looks like a parser bug
+     * when it is a fixture that set a setting to its own default. The parser
+     * side cannot filter to match: knowing just's defaults means running just,
+     * which is the one thing Tier 1 must not do.
+     */
+    readonly stringLists: Readonly<Record<string, readonly string[]>>;
     readonly modules: readonly string[];
     readonly first: string | null;
 }
+
+/**
+ * The settings whose value is a list of strings.
+ *
+ * `script_interpreter` arrived in just 1.33.0 and is simply absent from an
+ * older dump, which needs no capability flag: an absent key is not explicitly
+ * set, so neither side reports it.
+ */
+const STRING_LIST_SETTINGS = ["shell", "windows_shell", "script_interpreter"] as const;
 
 /**
  * Imports are deliberately absent from Comparable.
@@ -303,11 +331,24 @@ export function comparableFromDump(dump: unknown, caps: DumpCapabilities): Compa
         })
         .sort((a, b) => a.name.localeCompare(b.name));
 
+    const dumpSettings = asRecord(root["settings"]);
+    const settings = explicitSettings(dumpSettings);
+    const stringLists: Record<string, readonly string[]> = {};
+    for (const key of STRING_LIST_SETTINGS) {
+        if (!settings.includes(key)) {
+            continue;
+        }
+        const setting = asRecord(dumpSettings[key]);
+        const args = Array.isArray(setting["arguments"]) ? setting["arguments"].map(String) : [];
+        stringLists[key] = [String(setting["command"] ?? ""), ...args];
+    }
+
     return {
         recipes,
         assignments,
         aliases,
-        settings: explicitSettings(asRecord(root["settings"])),
+        settings,
+        stringLists,
         modules: Object.keys(asRecord(root["modules"])).sort(),
         first: typeof root["first"] === "string" ? root["first"] : null,
     };
@@ -358,11 +399,20 @@ export function comparableFromParser(source: string, caps: DumpCapabilities): Co
         .map((a) => ({ name: a.name, target: a.target }))
         .sort((a, b) => a.name.localeCompare(b.name));
 
+    const stringLists: Record<string, readonly string[]> = {};
+    for (const setting of model.settings) {
+        const key = settingKey(setting.name);
+        if (setting.list !== undefined && STRING_LIST_SETTINGS.some((s) => s === key)) {
+            stringLists[key] = setting.list;
+        }
+    }
+
     return {
         recipes,
         assignments,
         aliases,
         settings: model.settings.map((s) => settingKey(s.name)).sort(),
+        stringLists,
         modules: model.modules.map((m) => m.name).sort(),
         first: model.first ?? null,
     };

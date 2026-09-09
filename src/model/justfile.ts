@@ -81,6 +81,19 @@ export interface ModelAlias {
 
 export interface ModelSetting {
     readonly name: string;
+    /**
+     * The value, when it is written as a list of string literals — the form
+     * the string-list settings take: `shell`, `windows-shell` and
+     * `script-interpreter`.
+     *
+     * Recorded for any setting written that way, because deciding which
+     * settings may hold a list is `just`'s call and not ours. Literal only, and
+     * absent otherwise: `set shell := [sh, "-c"]` is valid just, but resolving
+     * `sh` means evaluating, which Tier 1 must not do — the same rule that
+     * keeps assignment values out of the model entirely. What is here is what
+     * the file says, never what it means.
+     */
+    readonly list?: readonly string[];
     readonly span: Span;
 }
 

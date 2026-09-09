@@ -8,7 +8,14 @@
  * and we deliberately do neither.
  */
 
-import type { Attribute, Dependency, Justfile, Parameter, Recipe } from "../parser/ast.js";
+import type {
+    Attribute,
+    Dependency,
+    Expression,
+    Justfile,
+    Parameter,
+    Recipe,
+} from "../parser/ast.js";
 import { parse } from "../parser/parser.js";
 import type {
     JustfileModel,
@@ -22,6 +29,28 @@ import type {
     ModelRecipe,
     ModelSetting,
 } from "./justfile.js";
+
+/**
+ * A list of string literals, or undefined if it is anything else.
+ *
+ * Undefined covers three different situations on purpose — not a list, an
+ * element that needs evaluating, an unterminated string with no value — because
+ * the model draws one line and it is between "the file says this" and "working
+ * that out means running something".
+ */
+function literalStrings(value: Expression | undefined): string[] | undefined {
+    if (value?.kind !== "list") {
+        return undefined;
+    }
+    const strings: string[] = [];
+    for (const element of value.elements) {
+        if (element.kind !== "string" || element.value === undefined) {
+            return undefined;
+        }
+        strings.push(element.value);
+    }
+    return strings;
+}
 
 function buildAttribute(attribute: Attribute): ModelAttribute {
     return {
@@ -103,9 +132,15 @@ export function buildModel(ast: Justfile): JustfileModel {
                     });
                 }
                 break;
-            case "setting":
-                settings.push({ name: item.name.text, span: item.span });
+            case "setting": {
+                const list = literalStrings(item.value);
+                settings.push({
+                    name: item.name.text,
+                    ...(list !== undefined && { list }),
+                    span: item.span,
+                });
                 break;
+            }
             case "import":
                 if (item.path?.value !== undefined) {
                     imports.push({

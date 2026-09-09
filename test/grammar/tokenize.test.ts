@@ -383,3 +383,77 @@ describe("things that must not be mistaken for something else", () => {
         );
     });
 });
+
+describe("keywords are not reserved words", () => {
+    // Verified against just 1.58.0: every one of these lines is a recipe. A
+    // rule that matches on the first word alone claims them, and the recipe
+    // then loses its name colour and its body highlighting.
+    const RECIPES = [
+        ["import:\n    echo hi\n", "import"],
+        ["import p:\n    echo hi\n", "import"],
+        ["mod p:\n    echo hi\n", "mod"],
+        ['mod q="1":\n    echo hi\n', "mod"],
+        ["set shell:\n    echo hi\n", "set"],
+        ["alias p:\n    echo hi\n", "alias"],
+    ] as const;
+
+    for (const [source, name] of RECIPES) {
+        it(`scopes \`${source.split("\n")[0]}\` as a recipe`, async () => {
+            expect(await scopesAt(source, name)).toContain("entity.name.function.just");
+        });
+    }
+
+    it("still scopes the keyword forms as keywords", async () => {
+        expect(await scopesAt('import "x.just"\n', "import")).toContain(
+            "keyword.control.import.just",
+        );
+        expect(await scopesAt('import? "x.just"\n', "import")).toContain(
+            "keyword.control.import.just",
+        );
+        expect(await scopesAt('mod sub "s.just"\n', "sub")).toContain("entity.name.namespace.just");
+        expect(await scopesAt("mod?sub\n", "sub")).toContain("entity.name.namespace.just");
+        expect(await scopesAt('set shell := ["a"]\n', "shell")).toContain(
+            "support.type.property-name.just",
+        );
+    });
+
+    it("does not count a colon inside a quoted or backticked run", async () => {
+        // The guard skips these runs, so a path or command holding a colon does
+        // not make the line look like a recipe header.
+        expect(await scopesAt('mod sub "a:b.just"\n', "sub")).toContain(
+            "entity.name.namespace.just",
+        );
+        expect(await scopesAt('set shell := ["a", "b:c"]\n', "shell")).toContain(
+            "support.type.property-name.just",
+        );
+        expect(await scopesAt("set tempdir := `echo /a:b`\n", "tempdir")).toContain(
+            "support.type.property-name.just",
+        );
+    });
+});
+
+describe("keyword lines carrying a trailing comment", () => {
+    // A colon in a trailing comment must not make the line look like a recipe
+    // header. A URL in one is enough on its own, and is common.
+    const CASES = [
+        ['import "x.just" # see https://a.b\n', "import", "keyword.control.import.just"],
+        ['mod docs "d.just" # docs: here\n', "docs", "entity.name.namespace.just"],
+        ["set dotenv-load # note: yes\n", "dotenv-load", "support.type.property-name.just"],
+        [
+            "set unstable # see https://just.systems\n",
+            "unstable",
+            "support.type.property-name.just",
+        ],
+    ] as const;
+
+    for (const [source, needle, scope] of CASES) {
+        it(`keeps \`${source.trim()}\` a keyword item`, async () => {
+            expect(await scopesAt(source, needle)).toContain(scope);
+            expect(await scopesAt(source, "#")).toContain("comment.line.number-sign.just");
+        });
+    }
+
+    it("still ends a recipe header at its colon, comment or not", async () => {
+        expect(await scopesAt("mod p: # note\n", "mod")).toContain("entity.name.function.just");
+    });
+});

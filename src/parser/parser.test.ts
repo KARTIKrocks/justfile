@@ -177,6 +177,14 @@ describe("expression spans", () => {
         expect(spansOf('x := env("A") + "b"\n').get("call")).toBe('env("A")');
     });
 
+    it("stops a list at its closing bracket", () => {
+        expect(spansOf('x := ["a"] + "b"\n').get("list")).toBe('["a"]');
+    });
+
+    it("stops a multi-line list at its closing bracket", () => {
+        expect(spansOf('x := [\n    "a",\n]\n').get("list")).toBe('[\n    "a",\n]');
+    });
+
     it("stops an interpolation at its closing braces", () => {
         expect(spansOf("build:\n    echo {{ a }} tail\n").get("interpolation")).toBe("{{ a }}");
     });
@@ -227,5 +235,259 @@ describe("recovery around unterminated strings", () => {
         const model = modelFromSource('a := "one\ntwo"\n\nbuild:\n    echo hi\n');
         expect(model.assignments.map((x) => x.name)).toEqual(["a"]);
         expect(model.recipes.map((r) => r.name)).toEqual(["build"]);
+    });
+});
+
+describe("list literals", () => {
+    /** The value of the first item, when it is a list. */
+    function listOf(source: string) {
+        const item = parse(source).items[0];
+        const value = item !== undefined && "value" in item ? item.value : undefined;
+        expect(value?.kind).toBe("list");
+        return value?.kind === "list" ? value : undefined;
+    }
+
+    it("reads the value of `set shell`", () => {
+        const list = listOf('set shell := ["bash", "-cu"]\n');
+        expect(list?.elements.map((e) => (e.kind === "string" ? e.value : e.kind))).toEqual([
+            "bash",
+            "-cu",
+        ]);
+    });
+
+    it("reports no error on a list just accepts", () => {
+        for (const source of [
+            'set shell := ["bash", "-cu"]\n',
+            'set windows-shell := ["pwsh", "-c"]\n',
+            'set script-interpreter := ["sh", "-eu"]\n',
+            'set shell := ["a",]\n',
+        ]) {
+            expect(parse(source).errors, source).toEqual([]);
+        }
+    });
+
+    it("accepts a list anywhere an expression goes, and never mentions `set lists`", () => {
+        // just parses `[` as an expression everywhere and only rejects the
+        // result during evaluation — an unclosed bracket is reported before the
+        // `set lists` gate is ever consulted. That gate is semantic, so it is
+        // Tier 2's to enforce; see AGENTS.md invariant 1.
+        for (const source of [
+            'x := ["a"]\n',
+            'r p=["a"]:\n    echo\n',
+            'b x:\nr: (b ["a"])\n',
+            'r:\n    echo {{ ["a"] }}\n',
+            'x := [["a"], "b"]\n',
+        ]) {
+            expect(parse(source).errors, source).toEqual([]);
+        }
+    });
+
+    it("parses elements as full expressions", () => {
+        const list = listOf(
+            'x := [a, f("z"), (b), "c" + "d", if "1" == "1" { "y" } else { "n" }]\n',
+        );
+        expect(list?.elements.map((e) => e.kind)).toEqual([
+            "variable",
+            "call",
+            "group",
+            "concat",
+            "conditional",
+        ]);
+    });
+
+    it("keeps an empty list rather than calling it a syntax error", () => {
+        // just rejects `[]` today. Saying so would put a squiggle on a
+        // construct a later release could accept, and a wrong squiggle costs
+        // more than a missing one.
+        const parsed = parse("set shell := []\n");
+        expect(parsed.errors).toEqual([]);
+        expect(listOf("set shell := []\n")?.elements).toEqual([]);
+    });
+
+    describe("in the model", () => {
+        /** The first setting's recorded list, if it has one. */
+        function listValue(source: string) {
+            return modelFromSource(source).settings[0]?.list;
+        }
+
+        it("records the strings of a string-list setting", () => {
+            expect(listValue('set shell := ["bash", "-cu"]\n')).toEqual(["bash", "-cu"]);
+            expect(listValue('set windows-shell := [\n    "pwsh",\n    "-c",\n]\n')).toEqual([
+                "pwsh",
+                "-c",
+            ]);
+        });
+
+        it("records nothing for a value that would have to be evaluated", () => {
+            // `sh` is a variable and `[...]` a nested list: resolving either
+            // means running just's evaluator, which Tier 1 must not do.
+            expect(listValue('set shell := [sh, "-c"]\n')).toBeUndefined();
+            expect(listValue('set shell := [f("x")]\n')).toBeUndefined();
+        });
+
+        it("records nothing for a value that is not a list", () => {
+            expect(listValue("set dotenv-load := true\n")).toBeUndefined();
+            expect(listValue("set export\n")).toBeUndefined();
+            expect(listValue('set tempdir := "/tmp"\n')).toBeUndefined();
+        });
+
+        it("records nothing when a string in the list never closed", () => {
+            expect(listValue('set shell := ["bash\n')).toBeUndefined();
+        });
+    });
+
+    describe("across lines", () => {
+        it("reads a list split over several lines", () => {
+            const list = listOf('set shell := [\n    "bash",\n    "-cu",\n]\n');
+            expect(list?.elements).toHaveLength(2);
+        });
+
+        it("reads elements written flush against the left margin", () => {
+            // just allows any indentation inside the brackets, so a column-zero
+            // element is a continuation line and not a new item.
+            expect(listOf('set shell := [\n"bash",\n"-cu",\n]\n')?.elements).toHaveLength(2);
+        });
+
+        it("reads a list whose commas start their own lines", () => {
+            // just is indifferent to where the newlines fall between the
+            // brackets, so a comma on its own line is still a separator.
+            expect(
+                listOf('set shell := [\n    "bash"\n    ,\n    "-cu"\n]\n')?.elements,
+            ).toHaveLength(2);
+        });
+
+        it("covers every line of a multi-line setting", () => {
+            const source = 'set shell := [\n    "bash",\n]\n';
+            const item = parse(source).items[0];
+            expect(
+                source.slice(
+                    item?.span.offset,
+                    (item?.span.offset ?? 0) + (item?.span.length ?? 0),
+                ),
+            ).toBe('set shell := [\n    "bash",\n]');
+        });
+
+        it("does not swallow the item below a blank line inside the list", () => {
+            const model = modelFromSource(
+                'set shell := [\n\n    "bash"\n\n]\n\nbuild:\n    echo hi\n',
+            );
+            expect(model.recipes.map((r) => r.name)).toEqual(["build"]);
+        });
+    });
+
+    describe("recovery from a missing `]`", () => {
+        it("reports the missing bracket once", () => {
+            const parsed = parse('set shell := ["a"\nbuild:\n    echo hi\n');
+            expect(parsed.errors.map((e) => e.message)).toEqual(["expected `]`"]);
+        });
+
+        it("stops at the recipe below instead of eating the rest of the file", () => {
+            // Without a bound the list runs to end of file, and one missing
+            // bracket costs the whole outline.
+            const model = modelFromSource(
+                'set shell := ["a"\n\nbuild:\n    echo hi\n\ntest:\n    echo bye\n',
+            );
+            expect(model.recipes.map((r) => r.name)).toEqual(["build", "test"]);
+        });
+
+        it("stops at an item keyword below", () => {
+            const model = modelFromSource('set shell := ["a"\nset export := true\nx := "1"\n');
+            expect(model.settings.map((s) => s.name)).toEqual(["shell", "export"]);
+            expect(model.assignments.map((a) => a.name)).toEqual(["x"]);
+        });
+
+        it("leaves an attribute below it attached to its own recipe", () => {
+            // Reading `[private]` as a nested list would leave the recipe
+            // looking public, which is a wrong answer rather than a missing one.
+            const model = modelFromSource('set shell := ["a"\n[private]\nbuild:\n    echo hi\n');
+            expect(model.recipes.map((r) => `${r.name}:${r.private}`)).toEqual(["build:true"]);
+        });
+
+        it("keeps a nested list at the left margin inside the outer list", () => {
+            // The bail-out needs a name after the bracket, as the grammar's
+            // does: `[` before anything else is a nested list, not an attribute.
+            // just accepts this whole thing as one assignment.
+            const parsed = parse('x := [\n["a"],\n]\n');
+            expect(parsed.errors).toEqual([]);
+            expect(parsed.items.map((i) => i.kind)).toEqual(["assignment"]);
+        });
+
+        it("keeps an alias below it", () => {
+            const model = modelFromSource('build:\n    echo hi\nx := ["a"\nalias b := build\n');
+            expect(model.aliases.map((a) => a.name)).toEqual(["b"]);
+        });
+
+        it("terminates on input that offers nothing to close it", () => {
+            for (const source of [
+                'x := ["a"',
+                "x := [",
+                "x := [,,,,\n",
+                'x := [\n\n\n"a"',
+                "x := []]",
+            ]) {
+                expect(() => parse(source), source).not.toThrow();
+            }
+        });
+    });
+});
+
+describe("keywords are not reserved words", () => {
+    /** Item kinds and names, as `kind:name`, in the order the model reports. */
+    function items(source: string): string[] {
+        const model = modelFromSource(source);
+        return [
+            ...model.settings.map((s) => `setting:${s.name}`),
+            ...model.aliases.map((a) => `alias:${a.name}`),
+            ...model.modules.map((m) => `module:${m.name}${m.optional ? "?" : ""}`),
+            ...model.imports.map((i) => `import:${i.path}`),
+            ...model.recipes.map((r) => `recipe:${r.name}(${r.parameters.map((p) => p.name)})`),
+        ];
+    }
+
+    it("reads a recipe whose name is a keyword", () => {
+        // Verified against just 1.58.0: every one of these is a recipe. The
+        // word a line starts with cannot decide what the line is.
+        expect(items("import:\n    echo hi\n")).toEqual(["recipe:import()"]);
+        expect(items("mod:\n    echo hi\n")).toEqual(["recipe:mod()"]);
+        expect(items("set:\n    echo hi\n")).toEqual(["recipe:set()"]);
+        expect(items("alias:\n    echo hi\n")).toEqual(["recipe:alias()"]);
+    });
+
+    it("reads a keyword-named recipe that takes parameters", () => {
+        // `mod p:` used to become a module named "p", and `set p:` a setting
+        // named "p" — the recipe vanished and something the file never wrote
+        // took its place.
+        expect(items("mod p:\n    echo hi\n")).toEqual(["recipe:mod(p)"]);
+        expect(items("set p:\n    echo hi\n")).toEqual(["recipe:set(p)"]);
+        expect(items("import p:\n    echo hi\n")).toEqual(["recipe:import(p)"]);
+        expect(items('alias p="q":\n    echo hi\n')).toEqual(["recipe:alias(p)"]);
+    });
+
+    it("still reads the keyword forms as items", () => {
+        expect(items("set dotenv-load := true\n")).toEqual(["setting:dotenv-load"]);
+        expect(items("build:\n    echo\nalias b := build\n")).toEqual([
+            "alias:b",
+            "recipe:build()",
+        ]);
+        expect(items('import "x.just"\n')).toEqual(["import:x.just"]);
+        expect(items('import? "x.just"\n')).toEqual(["import:x.just"]);
+        expect(items('mod sub "s.just"\n')).toEqual(["module:sub"]);
+    });
+
+    it("reads an optional module however the `?` is spaced", () => {
+        // `?` cannot appear in a name, so just needs no space around it. A
+        // dispatch that looks only at the token after `mod` sees `?`, gives up,
+        // and reads the whole line as a recipe named "mod".
+        for (const source of ["mod? sub\n", "mod?sub\n", "mod?   sub\n"]) {
+            expect(items(source), source).toEqual(["module:sub?"]);
+        }
+    });
+
+    it("recovers to a keyword item below an unclosed list", () => {
+        expect(items('set shell := ["a"\nmod?sub\n')).toEqual(["setting:shell", "module:sub?"]);
+        expect(items('set shell := ["a"\nimport:\n    echo\n')).toEqual([
+            "setting:shell",
+            "recipe:import()",
+        ]);
     });
 });
