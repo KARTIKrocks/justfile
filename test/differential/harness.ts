@@ -75,10 +75,14 @@ export interface Comparable {
      * the dump reports `shell` as `{command, arguments}`, so a parser that
      * dropped an element or split them wrongly disagrees.
      *
-     * It carries the same blind spot as `settings`: a setting written with its
-     * own default value does not differ from the default in the dump, so
-     * neither side reports it. Fixtures must therefore not set one to its
-     * default — `set shell := ["sh", "-cu"]` would compare nothing.
+     * One asymmetry to know about, shared with `settings`. The dump reports
+     * only settings whose value differs from the default, because nothing in it
+     * says which ones the file wrote; our side reports every list it read.
+     * `set shell := ["sh", "-cu"]` in a fixture therefore *fails* the suite
+     * rather than comparing nothing, and the failure looks like a parser bug
+     * when it is a fixture that set a setting to its own default. The parser
+     * side cannot filter to match: knowing just's defaults means running just,
+     * which is the one thing Tier 1 must not do.
      */
     readonly stringLists: Readonly<Record<string, readonly string[]>>;
     readonly modules: readonly string[];
