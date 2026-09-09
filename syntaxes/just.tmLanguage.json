@@ -83,8 +83,8 @@
       ]
     },
     "setting": {
-      "comment": "Setting names verified against just 1.58.0: the 27 the JSON dump reports for an empty justfile, plus `script-interpreter`, which the dump does not surface. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `set shell:` is a recipe named `set` with a parameter called `shell`, and `mod p:` a recipe named `mod`. The lookahead rejects the line when it is a recipe header \u2014 a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped so a colon inside one does not count.",
-      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(set)[ \\t]+(allow-duplicate-variables|allow-duplicate-recipes|positional-arguments|windows-powershell|script-interpreter|working-directory|no-exit-message|dotenv-filename|dotenv-override|dotenv-required|dotenv-command|ignore-comments|windows-shell|default-script|dotenv-path|dotenv-load|default-list|indentation|fallback|tempdir|unstable|export|guards|lists|no-cd|quiet|shell|lazy)(?![A-Za-z0-9_-])",
+      "comment": "Setting names verified against just 1.58.0: the 27 the JSON dump reports for an empty justfile, plus `script-interpreter`, which the dump does not surface. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `set shell:` is a recipe named `set` with a parameter called `shell`, and `mod p:` a recipe named `mod`. The lookahead rejects the line when it is a recipe header \u2014 a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped, and the scan stopping at a `#` so a colon in a trailing comment does not count \u2014 a URL in one is otherwise enough to hide the keyword.",
+      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:#\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(set)[ \\t]+(allow-duplicate-variables|allow-duplicate-recipes|positional-arguments|windows-powershell|script-interpreter|working-directory|no-exit-message|dotenv-filename|dotenv-override|dotenv-required|dotenv-command|ignore-comments|windows-shell|default-script|dotenv-path|dotenv-load|default-list|indentation|fallback|tempdir|unstable|export|guards|lists|no-cd|quiet|shell|lazy)(?![A-Za-z0-9_-])",
       "beginCaptures": {
         "1": {
           "name": "keyword.other.set.just"
@@ -132,8 +132,8 @@
       }
     },
     "import": {
-      "comment": "`import?` is an optional import: a missing file is not an error. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `import:` and `import p:` are recipes named `import`. The lookahead rejects the line when it is a recipe header: a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped so a colon inside one does not count.",
-      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(import)(\\?)?[ \\t]",
+      "comment": "`import?` is an optional import: a missing file is not an error. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `import:` and `import p:` are recipes named `import`. The lookahead rejects the line when it is a recipe header: a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped, and the scan stopping at a `#` so a colon in a trailing comment does not count \u2014 a URL in one is otherwise enough to hide the keyword.",
+      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:#\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(import)(\\?)?[ \\t]",
       "beginCaptures": {
         "1": {
           "name": "keyword.control.import.just"
@@ -153,8 +153,8 @@
       ]
     },
     "module": {
-      "comment": "`mod name`, `mod name \"path\"`, and the optional `mod? name` \u2014 which just also accepts written tight, as `mod?name`. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `set shell:` is a recipe named `set` with a parameter called `shell`, and `mod p:` a recipe named `mod`. The lookahead rejects the line when it is a recipe header \u2014 a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped so a colon inside one does not count.",
-      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(mod)(?:(\\?)[ \\t]*|[ \\t]+)([A-Za-z_][A-Za-z0-9_-]*)",
+      "comment": "`mod name`, `mod name \"path\"`, and the optional `mod? name` \u2014 which just also accepts written tight, as `mod?name`. Guarded against a recipe whose name happens to be this keyword \u2014 none of them is reserved, so `set shell:` is a recipe named `set` with a parameter called `shell`, and `mod p:` a recipe named `mod`. The lookahead rejects the line when it is a recipe header \u2014 a name, then a bare `:` that is not `:=`, with quoted and backticked runs skipped, and the scan stopping at a `#` so a colon in a trailing comment does not count \u2014 a URL in one is otherwise enough to hide the keyword.",
+      "begin": "^[ \\t]*(?![A-Za-z_][A-Za-z0-9_-]*(?:[^:#\\n'\\\"`]|'[^'\\n]*'|\\\"[^\\\"\\n]*\\\"|`[^`\\n]*`)*:(?!=))(mod)(?:(\\?)[ \\t]*|[ \\t]+)([A-Za-z_][A-Za-z0-9_-]*)",
       "beginCaptures": {
         "1": {
           "name": "keyword.control.import.module.just"

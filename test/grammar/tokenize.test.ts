@@ -431,3 +431,29 @@ describe("keywords are not reserved words", () => {
         );
     });
 });
+
+describe("keyword lines carrying a trailing comment", () => {
+    // A colon in a trailing comment must not make the line look like a recipe
+    // header. A URL in one is enough on its own, and is common.
+    const CASES = [
+        ['import "x.just" # see https://a.b\n', "import", "keyword.control.import.just"],
+        ['mod docs "d.just" # docs: here\n', "docs", "entity.name.namespace.just"],
+        ["set dotenv-load # note: yes\n", "dotenv-load", "support.type.property-name.just"],
+        [
+            "set unstable # see https://just.systems\n",
+            "unstable",
+            "support.type.property-name.just",
+        ],
+    ] as const;
+
+    for (const [source, needle, scope] of CASES) {
+        it(`keeps \`${source.trim()}\` a keyword item`, async () => {
+            expect(await scopesAt(source, needle)).toContain(scope);
+            expect(await scopesAt(source, "#")).toContain("comment.line.number-sign.just");
+        });
+    }
+
+    it("still ends a recipe header at its colon, comment or not", async () => {
+        expect(await scopesAt("mod p: # note\n", "mod")).toContain("entity.name.function.just");
+    });
+});
