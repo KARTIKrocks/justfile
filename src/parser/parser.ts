@@ -196,6 +196,21 @@ class Parser {
         this.skipNewlines();
     }
 
+    /**
+     * End-of-item recovery, skipped when the parser already stopped at the next
+     * item.
+     *
+     * An item whose value spans lines — an unclosed multi-line list is how that
+     * happens — can finish with the parser sitting on the item below it.
+     * Skipping to the next line from there would discard a line that parses
+     * perfectly well, so one missing `]` would cost two items instead of one.
+     */
+    private recoverToNextItem(): void {
+        if (!this.atItemStart()) {
+            this.recoverToNextLine();
+        }
+    }
+
     // -- entry point --------------------------------------------------------
 
     parse(): Justfile {
@@ -339,10 +354,9 @@ class Parser {
         if (this.eat(TokenKind.ColonEquals) !== undefined) {
             value = this.parseExpression();
         }
-        // After recovery, not before: `set shell := ["bash"]` is valid just that
-        // the expression parser cannot yet read, and taking the span here keeps
-        // the item covering its line instead of stopping where parsing gave up.
-        this.recoverToNextLine();
+        // After recovery, not before, so the item covers its whole line even
+        // when the value stopped parsing partway along it.
+        this.recoverToNextItem();
         const span = this.spanThrough(start);
         return value === undefined
             ? { kind: "setting", span, name }
@@ -371,7 +385,7 @@ class Parser {
         const name = this.parseName();
         this.expect(TokenKind.ColonEquals, "`:=`");
         const value = this.parseExpression();
-        this.recoverToNextLine();
+        this.recoverToNextItem();
         return {
             kind: "assignment",
             span: this.spanThrough(start ?? name.span),
@@ -832,6 +846,12 @@ class Parser {
             return inner === undefined ? { kind: "group", span } : { kind: "group", span, inner };
         }
 
+        if (token.kind === TokenKind.BracketL) {
+            this.advance();
+            const elements = this.parseListElements();
+            return { kind: "list", span: this.spanThrough(token.span), elements };
+        }
+
         if (token.kind === TokenKind.Identifier) {
             const name = this.parseName();
             if (!this.at(TokenKind.ParenL)) {
@@ -864,6 +884,99 @@ class Parser {
         }
         this.expect(TokenKind.ParenR, "`)`");
         return args;
+    }
+
+    /**
+     * Elements up to the closing bracket. Always terminates.
+     *
+     * Newlines carry no meaning between the brackets — `just` accepts a list
+     * split over as many lines as you like, and that is how `set shell` is
+     * usually written — so they are skipped rather than ending the list.
+     *
+     * That tolerance is what makes an unclosed bracket dangerous: without a
+     * bound, one missing `]` would swallow every recipe below it and cost the
+     * whole outline. `atItemStart` is the bound.
+     */
+    private parseListElements(): Expression[] {
+        const elements: Expression[] = [];
+        for (;;) {
+            this.skipNewlines();
+            if (this.done || this.at(TokenKind.BracketR) || this.atItemStart()) {
+                break;
+            }
+            const before = this.index;
+            elements.push(this.parseExpression());
+            this.skipNewlines();
+            this.eat(TokenKind.Comma);
+            // Progress is guaranteed by the skips above in every case but one:
+            // an element that consumed nothing with no newline and no comma
+            // after it. Force it, so a stray token cannot spin here.
+            if (this.index === before) {
+                this.advance();
+            }
+        }
+        this.expect(TokenKind.BracketR, "`]`");
+        return elements;
+    }
+
+    /**
+     * Does the parser sit at the start of a line that can only be a new item?
+     *
+     * Recovery inside a bracketed expression needs somewhere to stop, and the
+     * next item is the only honest place: everything after it parses correctly
+     * whatever went wrong above. The test mirrors the bail-out lookahead in the
+     * TextMate grammar, and is deliberately conservative — a line that merely
+     * *could* be an expression, such as a bare string, keeps the list open.
+     *
+     * Column zero is required because `just` allows a list's elements to sit at
+     * any indentation, including none; the keyword or `name:` shape is what
+     * separates a continuation line from an item, not the indent alone.
+     */
+    private atItemStart(): boolean {
+        if (this.peek().span.column !== 0) {
+            return false;
+        }
+        // An attribute belongs to the item below it. Reading `[private]` as a
+        // nested list would leave that item looking public, which is a wrong
+        // answer rather than a missing one; nested lists need the unstable
+        // `set lists` and are the cheaper thing to give up here.
+        if (this.at(TokenKind.BracketL)) {
+            return true;
+        }
+        if (this.atKeyword(KEYWORD.import)) {
+            return true;
+        }
+        const isItemWord =
+            this.atKeyword(KEYWORD.set) ||
+            this.atKeyword(KEYWORD.alias) ||
+            this.atKeyword(KEYWORD.mod);
+        if (isItemWord && this.isItemKeyword()) {
+            return true;
+        }
+        if (this.atExportedAssignment() || this.isAssignmentAhead(0)) {
+            return true;
+        }
+        return this.atRecipeHeader();
+    }
+
+    /** Is this line a recipe header — a name, then a `:` before the newline? */
+    private atRecipeHeader(): boolean {
+        if (!this.at(TokenKind.Identifier) && !this.at(TokenKind.At)) {
+            return false;
+        }
+        // Bounded by the stream length, not by finding an Eof: `peek` past the
+        // end repeats the last token, so a forward scan that trusts Eof to
+        // arrive is a scan that can run forever.
+        for (let offset = 0; this.index + offset < this.tokens.length; offset++) {
+            const kind = this.peek(offset).kind;
+            if (kind === TokenKind.Newline || kind === TokenKind.Eof) {
+                return false;
+            }
+            if (kind === TokenKind.Colon) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private parseStringExpression(): StringExpression {

@@ -39,6 +39,7 @@ export type Expression =
     | ConcatExpression
     | ConditionalExpression
     | GroupExpression
+    | ListExpression
     | ErrorExpression;
 
 export interface StringExpression extends Node {
@@ -105,6 +106,25 @@ export interface ConditionalExpression extends Node {
 export interface GroupExpression extends Node {
     readonly kind: "group";
     readonly inner?: Expression;
+}
+
+/**
+ * `["bash", "-cu"]`.
+ *
+ * `just` parses a bracket group as an expression everywhere an expression is
+ * allowed, then rejects most of them during evaluation: outside the three
+ * string-list settings, a list needs `set lists`, which is unstable as of
+ * 1.58.0. That rejection is semantic, so it is Tier 2's to make and not ours —
+ * `just` reports unclosed brackets and missing commas before it ever looks at
+ * the setting, which is what tells us the gate is not part of the grammar.
+ *
+ * `elements` may be empty. `just` rejects `[]` today, but saying so would be a
+ * squiggle on a construct a future release could accept; see AGENTS.md on the
+ * asymmetric cost of a wrong diagnostic.
+ */
+export interface ListExpression extends Node {
+    readonly kind: "list";
+    readonly elements: readonly Expression[];
 }
 
 /** Emitted where an expression was required but could not be parsed. */
