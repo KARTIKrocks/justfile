@@ -955,11 +955,12 @@ class Parser {
         if (this.peek().span.column !== 0) {
             return false;
         }
-        // An attribute belongs to the item below it. Reading `[private]` as a
-        // nested list would leave that item looking public, which is a wrong
-        // answer rather than a missing one; nested lists need the unstable
-        // `set lists` and are the cheaper thing to give up here.
-        if (this.at(TokenKind.BracketL)) {
+        // An attribute belongs to the item below it, and reading `[private]` as
+        // a nested list would leave that item looking public — a wrong answer
+        // rather than a missing one. A name has to follow the bracket, which is
+        // what the grammar's bail-out requires too: every attribute starts with
+        // one, so `[` before anything else is a nested list and not an item.
+        if (this.at(TokenKind.BracketL) && this.peek(1).kind === TokenKind.Identifier) {
             return true;
         }
         if (this.atRecipeHeader() || this.atModuleKeyword()) {

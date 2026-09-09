@@ -403,6 +403,15 @@ describe("list literals", () => {
             expect(model.recipes.map((r) => `${r.name}:${r.private}`)).toEqual(["build:true"]);
         });
 
+        it("keeps a nested list at the left margin inside the outer list", () => {
+            // The bail-out needs a name after the bracket, as the grammar's
+            // does: `[` before anything else is a nested list, not an attribute.
+            // just accepts this whole thing as one assignment.
+            const parsed = parse('x := [\n["a"],\n]\n');
+            expect(parsed.errors).toEqual([]);
+            expect(parsed.items.map((i) => i.kind)).toEqual(["assignment"]);
+        });
+
         it("keeps an alias below it", () => {
             const model = modelFromSource('build:\n    echo hi\nx := ["a"\nalias b := build\n');
             expect(model.aliases.map((a) => a.name)).toEqual(["b"]);
