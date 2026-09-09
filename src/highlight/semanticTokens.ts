@@ -149,6 +149,11 @@ function visitExpression(
         case "group":
             visitExpression(expression.inner, parameters, out);
             return;
+        case "list":
+            for (const element of expression.elements) {
+                visitExpression(element, parameters, out);
+            }
+            return;
         default:
             // Strings, backticks and error nodes carry no names to colour. The
             // grammar already handles their delimiters.

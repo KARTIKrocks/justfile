@@ -364,3 +364,23 @@ mod sub
         }
     });
 });
+
+describe("list literals", () => {
+    it("colours names inside a list", () => {
+        // The expression walk falls through to a `default` that colours
+        // nothing, so a missing case here is silent: the list highlights, and
+        // only the names inside it quietly lose their colour.
+        const tokens = scoped('set shell := [sh, join("a", "b")]\n');
+        expect(tokens).toContainEqual({ text: "sh", type: TokenType.Variable, modifiers: [] });
+        expect(tokens).toContainEqual({
+            text: "join",
+            type: TokenType.Function,
+            modifiers: [TokenModifier.DefaultLibrary],
+        });
+    });
+
+    it("colours a recipe's parameter used inside a list", () => {
+        const tokens = scoped("r p:\n    echo {{ [p] }}\n");
+        expect(tokens).toContainEqual({ text: "p", type: TokenType.Parameter, modifiers: [] });
+    });
+});
