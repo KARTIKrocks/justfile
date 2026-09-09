@@ -421,3 +421,64 @@ describe("list literals", () => {
         });
     });
 });
+
+describe("keywords are not reserved words", () => {
+    /** Item kinds and names, as `kind:name`, in the order the model reports. */
+    function items(source: string): string[] {
+        const model = modelFromSource(source);
+        return [
+            ...model.settings.map((s) => `setting:${s.name}`),
+            ...model.aliases.map((a) => `alias:${a.name}`),
+            ...model.modules.map((m) => `module:${m.name}${m.optional ? "?" : ""}`),
+            ...model.imports.map((i) => `import:${i.path}`),
+            ...model.recipes.map((r) => `recipe:${r.name}(${r.parameters.map((p) => p.name)})`),
+        ];
+    }
+
+    it("reads a recipe whose name is a keyword", () => {
+        // Verified against just 1.58.0: every one of these is a recipe. The
+        // word a line starts with cannot decide what the line is.
+        expect(items("import:\n    echo hi\n")).toEqual(["recipe:import()"]);
+        expect(items("mod:\n    echo hi\n")).toEqual(["recipe:mod()"]);
+        expect(items("set:\n    echo hi\n")).toEqual(["recipe:set()"]);
+        expect(items("alias:\n    echo hi\n")).toEqual(["recipe:alias()"]);
+    });
+
+    it("reads a keyword-named recipe that takes parameters", () => {
+        // `mod p:` used to become a module named "p", and `set p:` a setting
+        // named "p" — the recipe vanished and something the file never wrote
+        // took its place.
+        expect(items("mod p:\n    echo hi\n")).toEqual(["recipe:mod(p)"]);
+        expect(items("set p:\n    echo hi\n")).toEqual(["recipe:set(p)"]);
+        expect(items("import p:\n    echo hi\n")).toEqual(["recipe:import(p)"]);
+        expect(items('alias p="q":\n    echo hi\n')).toEqual(["recipe:alias(p)"]);
+    });
+
+    it("still reads the keyword forms as items", () => {
+        expect(items("set dotenv-load := true\n")).toEqual(["setting:dotenv-load"]);
+        expect(items("build:\n    echo\nalias b := build\n")).toEqual([
+            "alias:b",
+            "recipe:build()",
+        ]);
+        expect(items('import "x.just"\n')).toEqual(["import:x.just"]);
+        expect(items('import? "x.just"\n')).toEqual(["import:x.just"]);
+        expect(items('mod sub "s.just"\n')).toEqual(["module:sub"]);
+    });
+
+    it("reads an optional module however the `?` is spaced", () => {
+        // `?` cannot appear in a name, so just needs no space around it. A
+        // dispatch that looks only at the token after `mod` sees `?`, gives up,
+        // and reads the whole line as a recipe named "mod".
+        for (const source of ["mod? sub\n", "mod?sub\n", "mod?   sub\n"]) {
+            expect(items(source), source).toEqual(["module:sub?"]);
+        }
+    });
+
+    it("recovers to a keyword item below an unclosed list", () => {
+        expect(items('set shell := ["a"\nmod?sub\n')).toEqual(["setting:shell", "module:sub?"]);
+        expect(items('set shell := ["a"\nimport:\n    echo\n')).toEqual([
+            "setting:shell",
+            "recipe:import()",
+        ]);
+    });
+});

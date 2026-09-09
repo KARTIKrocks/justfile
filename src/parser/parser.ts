@@ -284,17 +284,23 @@ class Parser {
     }
 
     private parseItemBody(attributes: readonly Attribute[]): Item {
-        if (this.atKeyword(KEYWORD.set) && this.isItemKeyword()) {
-            return this.parseSetting();
-        }
-        if (this.atKeyword(KEYWORD.alias) && this.isItemKeyword()) {
-            return this.parseAlias();
-        }
-        if (this.atKeyword(KEYWORD.import)) {
-            return this.parseImport();
-        }
-        if (this.atKeyword(KEYWORD.mod) && this.isItemKeyword()) {
-            return this.parseModule(attributes);
+        // None of these words is reserved, so the shape of the line decides and
+        // not the word it starts with: `import:` is a recipe named "import",
+        // and `mod p:` a recipe named "mod" that takes a parameter. A recipe
+        // header therefore wins over every keyword below.
+        if (!this.atRecipeHeader()) {
+            if (this.atKeyword(KEYWORD.set) && this.isItemKeyword()) {
+                return this.parseSetting();
+            }
+            if (this.atKeyword(KEYWORD.alias) && this.isItemKeyword()) {
+                return this.parseAlias();
+            }
+            if (this.atKeyword(KEYWORD.import)) {
+                return this.parseImport();
+            }
+            if (this.atModuleKeyword()) {
+                return this.parseModule(attributes);
+            }
         }
         if (this.atExportedAssignment()) {
             const keyword = this.advance();
@@ -319,12 +325,25 @@ class Parser {
         return isExportWord && this.isAssignmentAhead(1);
     }
 
-    /**
-     * `set`, `alias` and `mod` are not reserved, so `set:` is a recipe named
-     * "set". Only treat the word as a keyword when an identifier follows.
-     */
+    /** Only treat `set` or `alias` as a keyword when a name follows it. */
     private isItemKeyword(): boolean {
         return this.peek(1).kind === TokenKind.Identifier;
+    }
+
+    /**
+     * Is this `mod` the module keyword rather than a name spelled "mod"?
+     *
+     * The `?` of an optional module needs no space around it — `mod?sub` is
+     * what `just` accepts, because `?` cannot appear in a name — so looking
+     * only at the next token misses every optional module and reads it as a
+     * recipe called "mod".
+     */
+    private atModuleKeyword(): boolean {
+        if (!this.atKeyword(KEYWORD.mod)) {
+            return false;
+        }
+        const nameOffset = this.peek(1).kind === TokenKind.QuestionMark ? 2 : 1;
+        return this.peek(nameOffset).kind === TokenKind.Identifier;
     }
 
     /** Is there a `:=` on this line, making it an assignment rather than a recipe? */
@@ -943,20 +962,17 @@ class Parser {
         if (this.at(TokenKind.BracketL)) {
             return true;
         }
+        if (this.atRecipeHeader() || this.atModuleKeyword()) {
+            return true;
+        }
         if (this.atKeyword(KEYWORD.import)) {
             return true;
         }
-        const isItemWord =
-            this.atKeyword(KEYWORD.set) ||
-            this.atKeyword(KEYWORD.alias) ||
-            this.atKeyword(KEYWORD.mod);
+        const isItemWord = this.atKeyword(KEYWORD.set) || this.atKeyword(KEYWORD.alias);
         if (isItemWord && this.isItemKeyword()) {
             return true;
         }
-        if (this.atExportedAssignment() || this.isAssignmentAhead(0)) {
-            return true;
-        }
-        return this.atRecipeHeader();
+        return this.atExportedAssignment() || this.isAssignmentAhead(0);
     }
 
     /** Is this line a recipe header — a name, then a `:` before the newline? */
