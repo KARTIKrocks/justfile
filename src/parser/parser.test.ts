@@ -290,6 +290,21 @@ describe("list literals", () => {
         }
     });
 
+    it("reports no error on an attribute-shaped list that a bracket actually closes", () => {
+        // `[private]` is also valid syntax for a one-element list, and an
+        // unclosed bracket needs `[private]` to read as the recipe below's
+        // own attribute instead — but when the bracket genuinely does close
+        // (a comma or the closing bracket follows), that recovery guess must
+        // not fire on code `just` accepts cleanly. See `parseCommaSeparated`.
+        for (const source of [
+            "x := foo(\n[private]\n)\n",
+            "x := [\n[private]\n]\n",
+            'x := [\n[private],\n"a"\n]\n',
+        ]) {
+            expect(parse(source).errors, source).toEqual([]);
+        }
+    });
+
     it("parses elements as full expressions", () => {
         const list = listOf(
             'x := [a, f("z"), (b), "c" + "d", if "1" == "1" { "y" } else { "n" }]\n',
