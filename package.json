@@ -83,12 +83,12 @@
       }
     ],
     "configuration": {
-      "title": "Justfile",
+      "title": "%configuration.title%",
       "properties": {
         "just.executablePath": {
           "type": "string",
           "default": "just",
-          "markdownDescription": "Path to the `just` executable. Ignored in an untrusted workspace, where `just` is never run at all — see the extension's Workspace Trust support.",
+          "markdownDescription": "%just.executablePath.description%",
           "scope": "resource"
         }
       }

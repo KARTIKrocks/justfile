@@ -184,3 +184,57 @@ describe("refresh triggers", () => {
         expect(item.text).toContain("1.58.0");
     });
 });
+
+describe("activation must not spawn a process synchronously", () => {
+    it("does not call detect before the current synchronous call stack finishes", () => {
+        // detect() is what reaches execFile through runJust. A Promise
+        // executor runs synchronously, so if registerCliStatus ever called
+        // it without first yielding, the actual subprocess spawn would
+        // happen inside activate()'s own call stack — AGENTS.md invariant 5
+        // forbids that outright, and nothing in CI would catch it.
+        let called = false;
+        const detect = () => {
+            called = true;
+            return Promise.resolve(SUPPORTED);
+        };
+        registerCliStatus(contextOf() as never, detect);
+        expect(called).toBe(false);
+    });
+});
+
+describe("concurrent refreshes", () => {
+    it("keeps the most recently started refresh's result, even when an earlier one resolves later", async () => {
+        let resolveSlow: ((detection: Detection) => void) | undefined;
+        const slow = new Promise<Detection>((resolve) => {
+            resolveSlow = resolve;
+        });
+        let calls = 0;
+        const detect = () => {
+            calls += 1;
+            // The first call (the initial refresh at registration) hangs
+            // until resolveSlow is called; every later call resolves at
+            // once, simulating two execFile round-trips completing in the
+            // opposite order to the one they started in.
+            return calls === 1 ? slow : Promise.resolve(SUPPORTED);
+        };
+
+        const context = contextOf();
+        const registered = registerCliStatus(context as never, detect);
+        // Let the deferred initial refresh actually start (generation 1),
+        // without waiting for it to resolve.
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // A second refresh — generation 2 — starts later and resolves
+        // before the first one does.
+        await recorded.commands.get("just.checkInstallation")?.();
+        const item = recorded.statusBarItems.at(-1);
+        expect(item?.text).toContain("1.58.0");
+
+        // The slow, earlier-started refresh finally resolves with a
+        // different result. It must not overwrite generation 2's.
+        resolveSlow?.(NOT_FOUND);
+        await registered;
+        expect(item?.text).toContain("1.58.0");
+    });
+});

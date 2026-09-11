@@ -88,18 +88,30 @@ export function registerCliStatus(
     // Shown once per session: PRD 8.29 says the extension "states this
     // clearly once, and does not repeatedly nag."
     let warnedBelowMinimum = false;
+    // The four triggers below can each start a refresh without waiting for
+    // an earlier one to finish (config change and trust-granted racing each
+    // other, say), and their `detect()` calls have no ordering guarantee on
+    // which resolves last. Only the most recently *started* refresh may
+    // update the cache and the status bar, so a slower, superseded one
+    // cannot overwrite a newer result with a stale one. The caller still
+    // gets its own call's actual result back, for a command like "check
+    // installation" to report on — only the shared state is guarded.
+    let generation = 0;
 
     async function refresh(): Promise<Detection> {
+        const thisGeneration = ++generation;
         const detection = await detect();
-        cached = detection;
-        applyDetection(item, detection);
-        if (
-            detection.state === "detected" &&
-            !detection.detected.supported &&
-            !warnedBelowMinimum
-        ) {
-            warnedBelowMinimum = true;
-            void vscode.window.showWarningMessage(messageFor(detection));
+        if (thisGeneration === generation) {
+            cached = detection;
+            applyDetection(item, detection);
+            if (
+                detection.state === "detected" &&
+                !detection.detected.supported &&
+                !warnedBelowMinimum
+            ) {
+                warnedBelowMinimum = true;
+                void vscode.window.showWarningMessage(messageFor(detection));
+            }
         }
         return detection;
     }
@@ -132,5 +144,13 @@ export function registerCliStatus(
         }),
     );
 
-    return refresh().then(() => item);
+    // Deferred past the current synchronous call: `refresh` reaches
+    // `runJust`, whose `new Promise((resolve) => execFile(...))` executor
+    // runs synchronously, per the language — without this yield, the actual
+    // subprocess spawn would happen inside activate()'s own call stack,
+    // before it returns. AGENTS.md invariant 5 forbids that outright, and
+    // nothing in CI would catch it if it crept back in.
+    return Promise.resolve()
+        .then(refresh)
+        .then(() => item);
 }

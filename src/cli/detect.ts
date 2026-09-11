@@ -37,13 +37,21 @@ export type Detection =
  * back to the default here as well means a caller that only looked at the
  * resolved path, without checking `Detection`'s state, still sees something
  * unremarkable rather than an attacker-chosen string.
+ *
+ * `get<string>()`'s type parameter is a compile-time cast, not a runtime
+ * check — VS Code never validates a hand-edited settings.json value against
+ * the schema `just.executablePath` declares, so `configured` can be a
+ * number, an array, anything JSON allows. The `typeof` guard is what keeps
+ * that from reaching `.trim()` and throwing.
  */
 export function resolveExecutablePath(): string {
     if (!vscode.workspace.isTrusted) {
         return DEFAULT_EXECUTABLE;
     }
     const configured = vscode.workspace.getConfiguration(CONFIG_SECTION).get<string>(CONFIG_KEY);
-    return configured !== undefined && configured.trim() !== "" ? configured : DEFAULT_EXECUTABLE;
+    return typeof configured === "string" && configured.trim() !== ""
+        ? configured
+        : DEFAULT_EXECUTABLE;
 }
 
 /** `just 1.58.0\n` → `1.58.0`. Absent when the output is not shaped like that. */

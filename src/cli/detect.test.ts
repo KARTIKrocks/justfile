@@ -35,6 +35,16 @@ describe("resolveExecutablePath", () => {
         expect(resolveExecutablePath()).toBe("just");
     });
 
+    it("falls back to `just` for a config value that is not a string", () => {
+        // `getConfiguration().get<string>()`'s type parameter is a
+        // compile-time cast only; VS Code never validates a hand-edited
+        // settings.json value against the schema. A number here must not
+        // reach `.trim()` and throw.
+        recorded.config.set("just.executablePath", 42);
+        expect(() => resolveExecutablePath()).not.toThrow();
+        expect(resolveExecutablePath()).toBe("just");
+    });
+
     it("ignores the configured path when the workspace is untrusted", () => {
         // A malicious repository's own .vscode/settings.json must not be able
         // to point the extension at a binary of its choosing. See AGENTS.md
