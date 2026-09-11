@@ -62,7 +62,8 @@ export interface OutlineLabels {
     readonly variables: string;
 }
 
-function rangeOf(span: Span): OffsetRange {
+/** An offset range covering exactly what `span` does. Shared with `src/folding`. */
+export function rangeOf(span: Span): OffsetRange {
     return { offset: span.offset, length: span.length };
 }
 
