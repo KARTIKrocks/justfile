@@ -185,6 +185,14 @@ describe("expression spans", () => {
         expect(spansOf('x := [\n    "a",\n]\n').get("list")).toBe('[\n    "a",\n]');
     });
 
+    it("stops a multi-line group at its closing paren", () => {
+        expect(spansOf('x := (\n    "a"\n) + "b"\n').get("group")).toBe('(\n    "a"\n)');
+    });
+
+    it("stops a multi-line call at its closing paren", () => {
+        expect(spansOf('x := env(\n    "A"\n) + "b"\n').get("call")).toBe('env(\n    "A"\n)');
+    });
+
     it("stops an interpolation at its closing braces", () => {
         expect(spansOf("build:\n    echo {{ a }} tail\n").get("interpolation")).toBe("{{ a }}");
     });
@@ -424,6 +432,100 @@ describe("list literals", () => {
                 "x := [,,,,\n",
                 'x := [\n\n\n"a"',
                 "x := []]",
+            ]) {
+                expect(() => parse(source), source).not.toThrow();
+            }
+        });
+    });
+});
+
+describe("newlines inside parentheses and call arguments", () => {
+    /** The value of the first assignment. */
+    function assignmentValue(source: string) {
+        const item = parse(source).items[0];
+        return item !== undefined && "value" in item ? item.value : undefined;
+    }
+
+    it("reports no error on a group, join or call split across lines", () => {
+        for (const source of [
+            'x := (\n    "a"\n)\n',
+            'x := (\n    "a" +\n    "b"\n)\n',
+            'x := (\n    "a"\n    + "b"\n)\n',
+            'x := (\n    "a" /\n    "b"\n)\n',
+            'x := (\n    / "a"\n)\n',
+            'x := lowercase(\n    "a",\n    "b"\n)\n',
+            'x := lowercase(\n    "a"\n    ,\n    "b"\n)\n',
+            'x := lowercase(\n    "a" +\n    "b"\n)\n',
+            'x := (\n    lowercase(\n        "a"\n    ) + "b"\n)\n',
+        ]) {
+            expect(parse(source).errors, source).toEqual([]);
+        }
+    });
+
+    it("keeps the same shape whether or not the same expression is split", () => {
+        const oneLine = assignmentValue('x := lowercase("a", "b") + ("c" / "d")\n');
+        const split = assignmentValue(
+            'x := lowercase(\n    "a",\n    "b"\n) + (\n    "c" /\n    "d"\n)\n',
+        );
+        expect(split?.kind).toBe(oneLine?.kind);
+        expect(split?.kind).toBe("concat");
+        if (split?.kind !== "concat" || oneLine?.kind !== "concat") {
+            return;
+        }
+        expect(split.left.kind).toBe("call");
+        expect(split.right?.kind).toBe("group");
+    });
+
+    it("a newline still ends a value at the top level, outside any paren", () => {
+        // parenDepth must not leak between one assignment and the next — only
+        // a newline lexically inside an unmatched `(` loses its meaning.
+        const model = modelFromSource('x := "a"\ny := "b"\n');
+        expect(model.assignments.map((a) => a.name)).toEqual(["x", "y"]);
+    });
+
+    it("a parameter default may split across lines, since its colon comes after it", () => {
+        const model = modelFromSource('build target=(\n    lowercase("A")\n):\n    echo hi\n');
+        expect(model.recipes.map((r) => r.name)).toEqual(["build"]);
+        expect(model.recipes[0]?.parameters[0]?.hasDefault).toBe(true);
+    });
+
+    describe("recovery from a missing `)`", () => {
+        it("reports the missing paren once", () => {
+            const parsed = parse('x := ("a"\nbuild:\n    echo hi\n');
+            expect(parsed.errors.map((e) => e.message)).toEqual(["expected `)`"]);
+        });
+
+        it("stops at the recipe below instead of eating the rest of the file", () => {
+            const model = modelFromSource(
+                'x := ("a"\n\nbuild:\n    echo hi\n\ntest:\n    echo bye\n',
+            );
+            expect(model.recipes.map((r) => r.name)).toEqual(["build", "test"]);
+        });
+
+        it("stops at an item keyword below", () => {
+            const model = modelFromSource('x := ("a"\nset export := true\ny := "1"\n');
+            expect(model.assignments.map((a) => a.name)).toEqual(["x", "y"]);
+            expect(model.settings.map((s) => s.name)).toEqual(["export"]);
+        });
+
+        it("keeps an alias below it", () => {
+            const model = modelFromSource('build:\n    echo hi\nx := ("a"\nalias b := build\n');
+            expect(model.aliases.map((a) => a.name)).toEqual(["b"]);
+        });
+
+        it("reports the missing paren once for an unclosed call", () => {
+            const parsed = parse('x := lowercase("a"\nbuild:\n    echo hi\n');
+            expect(parsed.errors.map((e) => e.message)).toEqual(["expected `)`"]);
+        });
+
+        it("terminates on input that offers nothing to close it", () => {
+            for (const source of [
+                'x := ("a"',
+                "x := (",
+                "x := lowercase(",
+                "x := lowercase(,,,,\n",
+                'x := (\n\n\n"a"',
+                "x := ())",
             ]) {
                 expect(() => parse(source), source).not.toThrow();
             }

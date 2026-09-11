@@ -89,6 +89,14 @@ class Parser {
     private index = 0;
     /** Current expression nesting depth, bounded by MAX_EXPRESSION_DEPTH. */
     private depth = 0;
+    /**
+     * How many `(` — group or call — we are lexically inside. `just` treats a
+     * newline as insignificant once inside an unmatched paren, no matter how
+     * deep, so this has to be a counter rather than a flag: it is what tells
+     * `parseUnary`/`parseConcat`/`parseJoin` — shared with top-level parsing,
+     * where a newline ends the expression — that they are in that context.
+     */
+    private parenDepth = 0;
     /** Comment lines seen since the last item, used for doc comments. */
     private pendingDoc: string[] = [];
 
@@ -185,6 +193,19 @@ class Parser {
     private skipNewlines(): void {
         while (this.at(TokenKind.Newline)) {
             this.advance();
+        }
+    }
+
+    /**
+     * Skip newlines only when lexically inside an unmatched `(` — a group or
+     * a call's arguments — where `just` treats them as insignificant. At the
+     * top level a newline still ends the expression (it is what lets
+     * `parseAssignment` and friends find the end of a value), so this must
+     * stay conditional on `parenDepth` rather than becoming the default.
+     */
+    private skipNewlinesInGroup(): void {
+        if (this.parenDepth > 0) {
+            this.skipNewlines();
         }
     }
 
@@ -811,6 +832,7 @@ class Parser {
 
     private parseConcat(): Expression {
         let left = this.parseJoin();
+        this.skipNewlinesInGroup();
         while (this.at(TokenKind.Plus)) {
             this.advance();
             const right = this.parseJoin();
@@ -820,11 +842,13 @@ class Parser {
                 left,
                 right,
             };
+            this.skipNewlinesInGroup();
         }
         return left;
     }
 
     private parseJoin(): Expression {
+        this.skipNewlinesInGroup();
         // `/ path` is a valid absolute join with no left operand.
         if (this.at(TokenKind.Slash)) {
             const start = this.advance().span;
@@ -832,15 +856,18 @@ class Parser {
             return { kind: "join", span: spanBetween(start, right.span), right };
         }
         let left = this.parseUnary();
+        this.skipNewlinesInGroup();
         while (this.at(TokenKind.Slash)) {
             this.advance();
             const right = this.parseUnary();
             left = { kind: "join", span: spanBetween(left.span, right.span), left, right };
+            this.skipNewlinesInGroup();
         }
         return left;
     }
 
     private parseUnary(): Expression {
+        this.skipNewlinesInGroup();
         const token = this.peek();
 
         if (token.kind === TokenKind.StringLiteral) {
@@ -859,7 +886,13 @@ class Parser {
 
         if (token.kind === TokenKind.ParenL) {
             this.advance();
-            const inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
+            this.parenDepth++;
+            let inner: Expression | undefined;
+            try {
+                inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
+            } finally {
+                this.parenDepth--;
+            }
             this.expect(TokenKind.ParenR, "`)`");
             const span = this.spanThrough(token.span);
             return inner === undefined ? { kind: "group", span } : { kind: "group", span, inner };
@@ -890,16 +923,35 @@ class Parser {
         return { kind: "error-expression", span: token.span };
     }
 
-    /** Comma-separated arguments up to the closing paren. Always terminates. */
+    /**
+     * Comma-separated arguments up to the closing paren. Always terminates.
+     *
+     * Newlines carry no meaning between the parens — `just` accepts a call
+     * split over as many lines as it takes, the same tolerance list literals
+     * have — so they are skipped rather than ending the argument list. That
+     * tolerance is what makes an unclosed `(` dangerous, for the same reason
+     * it is for `[`: without a bound, a missing `)` would swallow every
+     * recipe below it. `atItemStart` is the bound; see `parseListElements`.
+     */
     private parseCallArguments(): Expression[] {
         const args: Expression[] = [];
-        while (!this.done && !this.at(TokenKind.ParenR) && !this.at(TokenKind.Newline)) {
-            const before = this.index;
-            args.push(this.parseExpression());
-            this.eat(TokenKind.Comma);
-            if (this.index === before) {
-                this.advance();
+        this.parenDepth++;
+        try {
+            for (;;) {
+                this.skipNewlines();
+                if (this.done || this.at(TokenKind.ParenR) || this.atItemStart()) {
+                    break;
+                }
+                const before = this.index;
+                args.push(this.parseExpression());
+                this.skipNewlines();
+                this.eat(TokenKind.Comma);
+                if (this.index === before) {
+                    this.advance();
+                }
             }
+        } finally {
+            this.parenDepth--;
         }
         this.expect(TokenKind.ParenR, "`)`");
         return args;
