@@ -81,6 +81,34 @@
         "scopeName": "source.just",
         "path": "./syntaxes/just.tmLanguage.json"
       }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "just.executablePath": {
+          "type": "string",
+          "default": "just",
+          "markdownDescription": "%just.executablePath.description%",
+          "scope": "resource"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "just.checkInstallation",
+        "title": "%just.checkInstallation.title%",
+        "category": "Just"
+      },
+      {
+        "command": "just.showVersion",
+        "title": "%just.showVersion.title%",
+        "category": "Just"
+      },
+      {
+        "command": "just.configureExecutable",
+        "title": "%just.configureExecutable.title%",
+        "category": "Just"
+      }
     ]
   },
   "scripts": {

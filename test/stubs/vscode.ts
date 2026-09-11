@@ -160,6 +160,35 @@ export interface RegisteredFoldingRangeProvider {
     readonly provider: { provideFoldingRanges(document: unknown): unknown };
 }
 
+export const StatusBarAlignment = {
+    Left: 1,
+    Right: 2,
+} as const;
+
+export class StatusBarItem {
+    text = "";
+    tooltip: string | undefined;
+    command: string | undefined;
+    shown = false;
+    disposed = false;
+
+    show(): void {
+        this.shown = true;
+    }
+
+    hide(): void {
+        this.shown = false;
+    }
+
+    dispose(): void {
+        this.disposed = true;
+    }
+}
+
+export interface ConfigurationChangeEvent {
+    affectsConfiguration(section: string): boolean;
+}
+
 /** Everything the stub recorded. Reset between tests with `resetStub()`. */
 export const recorded = {
     semanticTokenProviders: [] as RegisteredProvider[],
@@ -168,6 +197,14 @@ export const recorded = {
     outputChannels: [] as { name: string; messages: string[]; disposed: boolean }[],
     onDidCloseTextDocument: new EventSource<{ uri: { toString(): string } }>(),
     onDidGrantWorkspaceTrust: new EventSource<void>(),
+    onDidChangeConfiguration: new EventSource<ConfigurationChangeEvent>(),
+    statusBarItems: [] as StatusBarItem[],
+    commands: new Map<string, (...args: unknown[]) => unknown>(),
+    executedCommands: [] as { command: string; args: unknown[] }[],
+    warningMessages: [] as string[],
+    infoMessages: [] as string[],
+    /** `"section.key"` → value, read back by `workspace.getConfiguration`. */
+    config: new Map<string, unknown>(),
 };
 
 export function resetStub(): void {
@@ -177,6 +214,14 @@ export function resetStub(): void {
     recorded.outputChannels.length = 0;
     recorded.onDidCloseTextDocument.listeners.length = 0;
     recorded.onDidGrantWorkspaceTrust.listeners.length = 0;
+    recorded.onDidChangeConfiguration.listeners.length = 0;
+    recorded.statusBarItems.length = 0;
+    recorded.commands.clear();
+    recorded.executedCommands.length = 0;
+    recorded.warningMessages.length = 0;
+    recorded.infoMessages.length = 0;
+    recorded.config.clear();
+    workspace.isTrusted = true;
 }
 
 export const languages = {
@@ -218,12 +263,55 @@ export const window = {
             },
         };
     },
+
+    createStatusBarItem(_alignment?: number, _priority?: number): StatusBarItem {
+        const item = new StatusBarItem();
+        recorded.statusBarItems.push(item);
+        return item;
+    },
+
+    showWarningMessage(message: string, ..._items: string[]): Promise<string | undefined> {
+        recorded.warningMessages.push(message);
+        return Promise.resolve(undefined);
+    },
+
+    showInformationMessage(message: string, ..._items: string[]): Promise<string | undefined> {
+        recorded.infoMessages.push(message);
+        return Promise.resolve(undefined);
+    },
 };
+
+export const commands = {
+    registerCommand(id: string, callback: (...args: unknown[]) => unknown): Disposable {
+        recorded.commands.set(id, callback);
+        return { dispose: () => recorded.commands.delete(id) };
+    },
+
+    executeCommand(command: string, ...args: unknown[]): Promise<unknown> {
+        recorded.executedCommands.push({ command, args });
+        return Promise.resolve(undefined);
+    },
+};
+
+interface Configuration {
+    get<T>(key: string): T | undefined;
+    get<T>(key: string, fallback: T): T;
+}
 
 export const workspace = {
     isTrusted: true,
     onDidCloseTextDocument: recorded.onDidCloseTextDocument.register,
     onDidGrantWorkspaceTrust: recorded.onDidGrantWorkspaceTrust.register,
+    onDidChangeConfiguration: recorded.onDidChangeConfiguration.register,
+
+    getConfiguration(section: string): Configuration {
+        return {
+            get<T>(key: string, fallback?: T): T | undefined {
+                const value = recorded.config.get(`${section}.${key}`);
+                return value === undefined ? fallback : (value as T);
+            },
+        };
+    },
 };
 
 export const l10n = {

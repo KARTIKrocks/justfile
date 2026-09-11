@@ -17,6 +17,7 @@ import {
     type Fixture,
     justVersion,
     loadFixtures,
+    MINIMUM_SUPPORTED_VERSION,
     versionAtLeast,
 } from "./harness.js";
 
@@ -25,16 +26,13 @@ const installed = justVersion();
 // Only compare fields this version of just actually reports.
 const caps = capabilitiesFor(installed);
 
-/** The floor the extension declares support for. */
-const MINIMUM_SUPPORTED = "1.27.0";
-
 describe(`differential against just ${installed}`, () => {
     it("has fixtures to compare", () => {
         expect(fixtures.length).toBeGreaterThan(0);
     });
 
     it("runs against a just new enough to be meaningful", () => {
-        expect(versionAtLeast(installed, MINIMUM_SUPPORTED)).toBe(true);
+        expect(versionAtLeast(installed, MINIMUM_SUPPORTED_VERSION)).toBe(true);
     });
 
     for (const fixture of fixtures) {

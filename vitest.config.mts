@@ -27,6 +27,11 @@ export default defineConfig({
                     // Each case shells out to the just binary.
                     testTimeout: 30_000,
                 },
+                // trust.test.ts imports src/cli/trust.ts, which reads
+                // `vscode.workspace.isTrusted`. Everything else here is
+                // vscode-free; the stub's default (trusted) is what this
+                // project's tests want anyway.
+                resolve: { alias: { vscode: vscodeStub } },
             },
         ],
     },

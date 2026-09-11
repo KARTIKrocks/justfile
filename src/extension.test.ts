@@ -24,6 +24,14 @@ describe("activate", () => {
         expect(recorded.foldingRangeProviders).toHaveLength(1);
     });
 
+    it("registers the Tier 2 CLI status: a status bar item and its three commands", () => {
+        activate(contextOf() as never);
+        expect(recorded.statusBarItems).toHaveLength(1);
+        expect(recorded.commands.has("just.checkInstallation")).toBe(true);
+        expect(recorded.commands.has("just.showVersion")).toBe(true);
+        expect(recorded.commands.has("just.configureExecutable")).toBe(true);
+    });
+
     it("parses nothing until something asks", () => {
         // The activation budget does not survive walking the workspace. The
         // cache starts empty and fills on the first provider call.
@@ -42,8 +50,10 @@ describe("activate", () => {
     it("puts everything it creates under the context's disposal", () => {
         const context = contextOf();
         activate(context as never);
-        // Output channel, close listener, the providers, trust listener.
-        expect(context.subscriptions.length).toBeGreaterThanOrEqual(6);
+        // Output channel, close listener, the Tier 1 providers, the trust
+        // listener, and the Tier 2 CLI status's item, two listeners and
+        // three commands.
+        expect(context.subscriptions.length).toBeGreaterThanOrEqual(12);
         for (const subscription of context.subscriptions) {
             expect(() => subscription.dispose()).not.toThrow();
         }
@@ -51,9 +61,10 @@ describe("activate", () => {
 
     it("listens for trust being granted rather than reading it once", () => {
         // Trust can arrive mid-session, so a value captured at activation would
-        // leave Tier 2 dark until the window reloaded.
+        // leave Tier 2 dark until the window reloaded. Two listeners: the
+        // output-log message here, and the CLI status's own refresh.
         activate(contextOf() as never);
-        expect(recorded.onDidGrantWorkspaceTrust.listeners).toHaveLength(1);
+        expect(recorded.onDidGrantWorkspaceTrust.listeners).toHaveLength(2);
         expect(() => recorded.onDidGrantWorkspaceTrust.emit(undefined)).not.toThrow();
     });
 
