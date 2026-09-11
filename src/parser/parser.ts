@@ -89,6 +89,14 @@ class Parser {
     private index = 0;
     /** Current expression nesting depth, bounded by MAX_EXPRESSION_DEPTH. */
     private depth = 0;
+    /**
+     * How many `(` — group or call — we are lexically inside. `just` treats a
+     * newline as insignificant once inside an unmatched paren, no matter how
+     * deep, so this has to be a counter rather than a flag: it is what tells
+     * `parseUnary`/`parseConcat`/`parseJoin` — shared with top-level parsing,
+     * where a newline ends the expression — that they are in that context.
+     */
+    private parenDepth = 0;
     /** Comment lines seen since the last item, used for doc comments. */
     private pendingDoc: string[] = [];
 
@@ -185,6 +193,19 @@ class Parser {
     private skipNewlines(): void {
         while (this.at(TokenKind.Newline)) {
             this.advance();
+        }
+    }
+
+    /**
+     * Skip newlines only when lexically inside an unmatched `(` — a group or
+     * a call's arguments — where `just` treats them as insignificant. At the
+     * top level a newline still ends the expression (it is what lets
+     * `parseAssignment` and friends find the end of a value), so this must
+     * stay conditional on `parenDepth` rather than becoming the default.
+     */
+    private skipNewlinesInGroup(): void {
+        if (this.parenDepth > 0) {
+            this.skipNewlines();
         }
     }
 
@@ -811,6 +832,7 @@ class Parser {
 
     private parseConcat(): Expression {
         let left = this.parseJoin();
+        this.skipNewlinesInGroup();
         while (this.at(TokenKind.Plus)) {
             this.advance();
             const right = this.parseJoin();
@@ -820,11 +842,13 @@ class Parser {
                 left,
                 right,
             };
+            this.skipNewlinesInGroup();
         }
         return left;
     }
 
     private parseJoin(): Expression {
+        this.skipNewlinesInGroup();
         // `/ path` is a valid absolute join with no left operand.
         if (this.at(TokenKind.Slash)) {
             const start = this.advance().span;
@@ -832,15 +856,18 @@ class Parser {
             return { kind: "join", span: spanBetween(start, right.span), right };
         }
         let left = this.parseUnary();
+        this.skipNewlinesInGroup();
         while (this.at(TokenKind.Slash)) {
             this.advance();
             const right = this.parseUnary();
             left = { kind: "join", span: spanBetween(left.span, right.span), left, right };
+            this.skipNewlinesInGroup();
         }
         return left;
     }
 
     private parseUnary(): Expression {
+        this.skipNewlinesInGroup();
         const token = this.peek();
 
         if (token.kind === TokenKind.StringLiteral) {
@@ -859,7 +886,13 @@ class Parser {
 
         if (token.kind === TokenKind.ParenL) {
             this.advance();
-            const inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
+            this.parenDepth++;
+            let inner: Expression | undefined;
+            try {
+                inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
+            } finally {
+                this.parenDepth--;
+            }
             this.expect(TokenKind.ParenR, "`)`");
             const span = this.spanThrough(token.span);
             return inner === undefined ? { kind: "group", span } : { kind: "group", span, inner };
@@ -867,7 +900,7 @@ class Parser {
 
         if (token.kind === TokenKind.BracketL) {
             this.advance();
-            const elements = this.parseListElements();
+            const elements = this.parseCommaSeparated(TokenKind.BracketR);
             return { kind: "list", span: this.spanThrough(token.span), elements };
         }
 
@@ -877,7 +910,13 @@ class Parser {
                 return { kind: "variable", span: name.span, name };
             }
             this.advance();
-            const args = this.parseCallArguments();
+            this.parenDepth++;
+            let args: Expression[];
+            try {
+                args = this.parseCommaSeparated(TokenKind.ParenR);
+            } finally {
+                this.parenDepth--;
+            }
             return {
                 kind: "call",
                 span: this.spanThrough(name.span),
@@ -890,43 +929,42 @@ class Parser {
         return { kind: "error-expression", span: token.span };
     }
 
-    /** Comma-separated arguments up to the closing paren. Always terminates. */
-    private parseCallArguments(): Expression[] {
-        const args: Expression[] = [];
-        while (!this.done && !this.at(TokenKind.ParenR) && !this.at(TokenKind.Newline)) {
-            const before = this.index;
-            args.push(this.parseExpression());
-            this.eat(TokenKind.Comma);
-            if (this.index === before) {
-                this.advance();
-            }
-        }
-        this.expect(TokenKind.ParenR, "`)`");
-        return args;
-    }
-
     /**
-     * Elements up to the closing bracket. Always terminates.
+     * Elements or arguments up to `closing` — `]` for a list literal, `)`
+     * for a call. Always terminates. Shared because the two are the same
+     * grammar: comma-separated expressions where a newline carries no
+     * meaning, `just` accepts either split over as many lines as it takes,
+     * and both need the same bound against an unclosed bracket swallowing
+     * every recipe below it.
      *
-     * Newlines carry no meaning between the brackets — `just` accepts a list
-     * split over as many lines as you like, and that is how `set shell` is
-     * usually written — so they are skipped rather than ending the list.
-     *
-     * That tolerance is what makes an unclosed bracket dangerous: without a
-     * bound, one missing `]` would swallow every recipe below it and cost the
-     * whole outline. `atItemStart` is the bound.
+     * `atUnambiguousItemStart` is that bound for everything except a
+     * `[Identifier` element, which is also the shape of an attribute for the
+     * item below (`[private]`) and cannot be told apart from a nested list
+     * by looking at it alone — both are valid at that point, so bailing out
+     * unconditionally would put a syntax error on code like
+     * `foo([private])`, which `just` accepts. It is instead parsed
+     * optimistically as an element, and only reinterpreted as an attribute
+     * in hindsight — by backtracking to `before` and stopping — if nothing
+     * turns out to continue the sequence afterward: no comma, and not
+     * `closing` either.
      */
-    private parseListElements(): Expression[] {
+    private parseCommaSeparated(closing: TokenKind): Expression[] {
         const elements: Expression[] = [];
         for (;;) {
             this.skipNewlines();
-            if (this.done || this.at(TokenKind.BracketR) || this.atItemStart()) {
+            if (this.done || this.at(closing) || this.atUnambiguousItemStart()) {
                 break;
             }
             const before = this.index;
-            elements.push(this.parseExpression());
+            const guessedAttribute = this.looksLikeAttribute();
+            const element = this.parseExpression();
             this.skipNewlines();
-            this.eat(TokenKind.Comma);
+            const hadComma = this.eat(TokenKind.Comma) !== undefined;
+            if (guessedAttribute && !hadComma && !this.done && !this.at(closing)) {
+                this.index = before;
+                break;
+            }
+            elements.push(element);
             // Progress is guaranteed by the skips above in every case but one:
             // an element that consumed nothing with no newline and no comma
             // after it. Force it, so a stray token cannot spin here.
@@ -934,7 +972,7 @@ class Parser {
                 this.advance();
             }
         }
-        this.expect(TokenKind.BracketR, "`]`");
+        this.expect(closing, closing === TokenKind.BracketR ? "`]`" : "`)`");
         return elements;
     }
 
@@ -952,16 +990,45 @@ class Parser {
      * separates a continuation line from an item, not the indent alone.
      */
     private atItemStart(): boolean {
+        return this.looksLikeAttribute() || this.atUnambiguousItemStart();
+    }
+
+    /**
+     * Is the current token a `[Identifier` at column 0 — the shape of an
+     * attribute for the item below, e.g. `[private]`?
+     *
+     * A name has to follow the bracket, which is what the grammar's bail-out
+     * requires too: every attribute starts with one, so `[` before anything
+     * else is a nested list and not an item.
+     *
+     * This alone is never enough to call it an item boundary, though:
+     * `[Identifier...]` is equally valid syntax for a nested list literal, so
+     * `foo([private])` is a call whose only argument is a one-element list,
+     * and bailing out on sight would put a syntax error on code `just`
+     * accepts cleanly. It is still a useful guess once nothing turns out to
+     * continue afterward — see `parseCommaSeparated`, which backtracks over
+     * exactly this case — and `atItemStart`, consulted only once a value has
+     * already failed to parse, where the guess is the best available answer.
+     */
+    private looksLikeAttribute(): boolean {
+        return (
+            this.peek().span.column === 0 &&
+            this.at(TokenKind.BracketL) &&
+            this.peek(1).kind === TokenKind.Identifier
+        );
+    }
+
+    /**
+     * `atItemStart`'s checks other than the attribute-shaped bracket guess.
+     * None of a recipe header, `set`, `mod`, `import`, `alias` or an
+     * assignment can ever be valid element or argument syntax — a bare `:`
+     * or `:=` at column 0 has no place in an expression — so unlike the
+     * bracket case, `parseCommaSeparated` can bail on these the moment it
+     * sees them, with no need to attempt a parse and backtrack first.
+     */
+    private atUnambiguousItemStart(): boolean {
         if (this.peek().span.column !== 0) {
             return false;
-        }
-        // An attribute belongs to the item below it, and reading `[private]` as
-        // a nested list would leave that item looking public — a wrong answer
-        // rather than a missing one. A name has to follow the bracket, which is
-        // what the grammar's bail-out requires too: every attribute starts with
-        // one, so `[` before anything else is a nested list and not an item.
-        if (this.at(TokenKind.BracketL) && this.peek(1).kind === TokenKind.Identifier) {
-            return true;
         }
         if (this.atRecipeHeader() || this.atModuleKeyword()) {
             return true;
