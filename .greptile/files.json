@@ -21,6 +21,11 @@
       "path": "src/parser/token.ts",
       "description": "Token kinds and spans. Shows the frozen-object-plus-union idiom used throughout in place of enums.",
       "scope": ["src/parser/**"]
+    },
+    {
+      "path": "src/cli/trust.ts",
+      "description": "The single trust-checked helper every `just` subprocess spawn must go through. The canonical implementation of the trust-gating rule described in SECURITY.md and rules.md — reference when reviewing any change that spawns a process or reads `just.executablePath`.",
+      "scope": ["src/**"]
     }
   ]
 }
