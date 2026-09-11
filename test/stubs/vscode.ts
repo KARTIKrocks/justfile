@@ -79,6 +79,25 @@ export class DocumentSymbol {
     }
 }
 
+/** Numbers match VS Code's; only `Comment` is ever mapped onto. */
+export const FoldingRangeKind = {
+    Comment: 1,
+    Imports: 2,
+    Region: 3,
+} as const;
+
+export class FoldingRange {
+    readonly start: number;
+    readonly end: number;
+    readonly kind: number | undefined;
+
+    constructor(start: number, end: number, kind?: number) {
+        this.start = start;
+        this.end = end;
+        this.kind = kind;
+    }
+}
+
 export class SemanticTokensLegend {
     // Written out rather than declared as parameter properties: those emit
     // runtime code, which `erasableSyntaxOnly` forbids. See AGENTS.md.
@@ -136,10 +155,16 @@ export interface RegisteredSymbolProvider {
     readonly provider: { provideDocumentSymbols(document: unknown): unknown };
 }
 
+export interface RegisteredFoldingRangeProvider {
+    readonly selector: unknown;
+    readonly provider: { provideFoldingRanges(document: unknown): unknown };
+}
+
 /** Everything the stub recorded. Reset between tests with `resetStub()`. */
 export const recorded = {
     semanticTokenProviders: [] as RegisteredProvider[],
     documentSymbolProviders: [] as RegisteredSymbolProvider[],
+    foldingRangeProviders: [] as RegisteredFoldingRangeProvider[],
     outputChannels: [] as { name: string; messages: string[]; disposed: boolean }[],
     onDidCloseTextDocument: new EventSource<{ uri: { toString(): string } }>(),
     onDidGrantWorkspaceTrust: new EventSource<void>(),
@@ -148,6 +173,7 @@ export const recorded = {
 export function resetStub(): void {
     recorded.semanticTokenProviders.length = 0;
     recorded.documentSymbolProviders.length = 0;
+    recorded.foldingRangeProviders.length = 0;
     recorded.outputChannels.length = 0;
     recorded.onDidCloseTextDocument.listeners.length = 0;
     recorded.onDidGrantWorkspaceTrust.listeners.length = 0;
@@ -168,6 +194,14 @@ export const languages = {
         provider: RegisteredSymbolProvider["provider"],
     ): Disposable {
         recorded.documentSymbolProviders.push({ selector, provider });
+        return { dispose: () => {} };
+    },
+
+    registerFoldingRangeProvider(
+        selector: unknown,
+        provider: RegisteredFoldingRangeProvider["provider"],
+    ): Disposable {
+        recorded.foldingRangeProviders.push({ selector, provider });
         return { dispose: () => {} };
     },
 };

@@ -21,6 +21,7 @@ describe("activate", () => {
         activate(contextOf() as never);
         expect(recorded.semanticTokenProviders).toHaveLength(1);
         expect(recorded.documentSymbolProviders).toHaveLength(1);
+        expect(recorded.foldingRangeProviders).toHaveLength(1);
     });
 
     it("parses nothing until something asks", () => {
@@ -42,7 +43,7 @@ describe("activate", () => {
         const context = contextOf();
         activate(context as never);
         // Output channel, close listener, the providers, trust listener.
-        expect(context.subscriptions.length).toBeGreaterThanOrEqual(5);
+        expect(context.subscriptions.length).toBeGreaterThanOrEqual(6);
         for (const subscription of context.subscriptions) {
             expect(() => subscription.dispose()).not.toThrow();
         }
