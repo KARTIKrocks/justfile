@@ -81,6 +81,34 @@
         "scopeName": "source.just",
         "path": "./syntaxes/just.tmLanguage.json"
       }
+    ],
+    "configuration": {
+      "title": "Justfile",
+      "properties": {
+        "just.executablePath": {
+          "type": "string",
+          "default": "just",
+          "markdownDescription": "Path to the `just` executable. Ignored in an untrusted workspace, where `just` is never run at all — see the extension's Workspace Trust support.",
+          "scope": "resource"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "just.checkInstallation",
+        "title": "%just.checkInstallation.title%",
+        "category": "Just"
+      },
+      {
+        "command": "just.showVersion",
+        "title": "%just.showVersion.title%",
+        "category": "Just"
+      },
+      {
+        "command": "just.configureExecutable",
+        "title": "%just.configureExecutable.title%",
+        "category": "Just"
+      }
     ]
   },
   "scripts": {

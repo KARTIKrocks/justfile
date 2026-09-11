@@ -16,6 +16,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { versionAtLeast } from "../../src/cli/version.js";
 import { modelFromSource } from "../../src/model/build.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -122,19 +123,7 @@ export function justVersion(): string {
     return output.trim().replace(/^just\s+/, "");
 }
 
-/** Compare dotted versions numerically. Returns true when `a` >= `b`. */
-export function versionAtLeast(a: string, b: string): boolean {
-    const pa = a.split(".").map(Number);
-    const pb = b.split(".").map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-        const x = pa[i] ?? 0;
-        const y = pb[i] ?? 0;
-        if (x !== y) {
-            return x > y;
-        }
-    }
-    return true;
-}
+export { MINIMUM_SUPPORTED_VERSION, versionAtLeast } from "../../src/cli/version.js";
 
 /**
  * What the installed `just` actually reports, so the comparison never asserts

@@ -8,6 +8,7 @@
 
 import * as vscode from "vscode";
 import { ParseCache } from "./model/cache.js";
+import { registerCliStatus } from "./providers/cliStatus.js";
 import { registerDocumentSymbols } from "./providers/documentSymbols.js";
 import { forgetClosedDocuments } from "./providers/documents.js";
 import { registerFolding } from "./providers/folding.js";
@@ -33,6 +34,13 @@ export function activate(context: vscode.ExtensionContext): void {
     registerSemanticTokens(context, cache);
     registerDocumentSymbols(context, cache);
     registerFolding(context, cache);
+
+    // The first Tier 2 feature: registration is synchronous and cheap, same
+    // as the providers above, but its own first refresh spawns `just
+    // --version` once trust allows it. Not awaited — activation must not
+    // block on a subprocess — so the status bar starts empty and fills in
+    // once that resolves.
+    void registerCliStatus(context);
 
     // Trust can be granted mid-session, so it is read at call time rather than
     // captured here. This listener exists to light up Tier 2 when that happens.
