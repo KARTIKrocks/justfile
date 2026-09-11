@@ -222,6 +222,22 @@ describe("expression spans", () => {
     });
 });
 
+describe("parenthesised groups", () => {
+    it("rejects an empty group, matching just", () => {
+        // just requires an expression inside `(...)` and rejects `()`
+        // outright ("expected backtick, ... but found )"). Treating it as an
+        // empty group with no error would be a missing squiggle on code just
+        // does not accept.
+        for (const source of ["x := ()\n", 'x := () + "a"\n']) {
+            expect(parse(source).errors, source).not.toEqual([]);
+        }
+    });
+
+    it("still never throws on an empty group", () => {
+        expect(() => parse("x := ()\n")).not.toThrow();
+    });
+});
+
 describe("recovery around unterminated strings", () => {
     it("still finds the recipe below an EOF-unterminated string", () => {
         const model = modelFromSource('broken := "oops\n\nbuild:\n    echo hi\n');

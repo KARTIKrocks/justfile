@@ -859,10 +859,17 @@ class Parser {
 
         if (token.kind === TokenKind.ParenL) {
             this.advance();
-            const inner = this.at(TokenKind.ParenR) ? undefined : this.parseExpression();
+            // Always an expression, never `at(ParenR)` short-circuited to an
+            // empty group: `just` requires one inside `(...)` and rejects
+            // `()` outright, so treating it as valid here would be a missing
+            // squiggle on code just doesn't accept. Calling `parseExpression`
+            // unconditionally reports that itself — its own "expected an
+            // expression" on a token that is immediately `)` — and still
+            // never throws, since parseExpression always returns some node.
+            const inner = this.parseExpression();
             this.expect(TokenKind.ParenR, "`)`");
             const span = this.spanThrough(token.span);
-            return inner === undefined ? { kind: "group", span } : { kind: "group", span, inner };
+            return { kind: "group", span, inner };
         }
 
         if (token.kind === TokenKind.BracketL) {
