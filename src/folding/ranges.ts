@@ -8,16 +8,17 @@
  *
  * Candidates are offset ranges, not line ranges. A `vscode.FoldingRange` is a
  * pair of line numbers, but turning an offset into a line needs the document,
- * which this layer does not have — see `src/outline/symbols.ts` for the same
- * split. That also means a candidate here is not yet known to span more than
- * one line: `(a)` and `(\n    a\n)` produce the same shape of node, and only
- * the provider, converting to lines, can tell them apart. It drops anything
- * that turns out not to.
+ * which this layer does not have — see `src/outline/symbols.ts`, whose
+ * `OffsetRange` this reuses for exactly that reason. That also means a
+ * candidate here is not yet known to span more than one line: `(a)` and
+ * `(\n    a\n)` produce the same shape of node, and only the provider,
+ * converting to lines, can tell them apart. It drops anything that turns out
+ * not to.
  */
 
+import { type OffsetRange, rangeOf } from "../outline/symbols.js";
 import type { Dependency, Expression, Item, Justfile, Parameter, Recipe } from "../parser/ast.js";
-import { tokenize } from "../parser/lexer.js";
-import type { Span } from "../parser/token.js";
+import type { Span, Token } from "../parser/token.js";
 import { TokenKind } from "../parser/token.js";
 
 /**
@@ -31,29 +32,13 @@ export const FoldingKind = {
 
 export type FoldingKind = (typeof FoldingKind)[keyof typeof FoldingKind];
 
-/** A half-open byte range into the document. */
-export interface OffsetRange {
-    readonly offset: number;
-    readonly length: number;
-}
-
 export interface FoldingRange {
     readonly range: OffsetRange;
     readonly kind?: FoldingKind;
 }
 
-function rangeOf(span: Span): OffsetRange {
-    return { offset: span.offset, length: span.length };
-}
-
-class Collector {
-    readonly ranges: FoldingRange[] = [];
-
-    add(span: Span, kind?: FoldingKind): void {
-        this.ranges.push(
-            kind === undefined ? { range: rangeOf(span) } : { range: rangeOf(span), kind },
-        );
-    }
+function add(ranges: FoldingRange[], span: Span, kind?: FoldingKind): void {
+    ranges.push(kind === undefined ? { range: rangeOf(span) } : { range: rangeOf(span), kind });
 }
 
 /**
@@ -62,23 +47,23 @@ class Collector {
  * Everything else — a bare name, a short string, a comparison — is always
  * one line, so walking into it looks only for nested candidates.
  */
-function visitExpression(expression: Expression | undefined, out: Collector): void {
+function visitExpression(expression: Expression | undefined, out: FoldingRange[]): void {
     if (expression === undefined) {
         return;
     }
     switch (expression.kind) {
         case "list":
-            out.add(expression.span);
+            add(out, expression.span);
             for (const element of expression.elements) {
                 visitExpression(element, out);
             }
             return;
         case "group":
-            out.add(expression.span);
+            add(out, expression.span);
             visitExpression(expression.inner, out);
             return;
         case "call":
-            out.add(expression.span);
+            add(out, expression.span);
             for (const argument of expression.args) {
                 visitExpression(argument, out);
             }
@@ -90,12 +75,12 @@ function visitExpression(expression: Expression | undefined, out: Collector): vo
             // left out: its span runs to wherever the lexer gave up, and
             // offering to fold that is more confusing than useful.
             if (!expression.unterminated) {
-                out.add(expression.span);
+                add(out, expression.span);
             }
             return;
         case "backtick":
             if (!expression.unterminated) {
-                out.add(expression.span);
+                add(out, expression.span);
             }
             return;
         case "join":
@@ -117,7 +102,7 @@ function visitExpression(expression: Expression | undefined, out: Collector): vo
     }
 }
 
-function visitDependencies(dependencies: readonly Dependency[], out: Collector): void {
+function visitDependencies(dependencies: readonly Dependency[], out: FoldingRange[]): void {
     for (const dependency of dependencies) {
         for (const argument of dependency.args) {
             visitExpression(argument, out);
@@ -125,17 +110,17 @@ function visitDependencies(dependencies: readonly Dependency[], out: Collector):
     }
 }
 
-function visitParameters(parameters: readonly Parameter[], out: Collector): void {
+function visitParameters(parameters: readonly Parameter[], out: FoldingRange[]): void {
     for (const parameter of parameters) {
         visitExpression(parameter.default, out);
     }
 }
 
-function visitRecipe(recipe: Recipe, out: Collector): void {
+function visitRecipe(recipe: Recipe, out: FoldingRange[]): void {
     // The header line stays visible when folded; the body is what collapses.
     // A recipe with no body has nothing to fold.
     if (recipe.body.length > 0) {
-        out.add(recipe.span);
+        add(out, recipe.span);
     }
     visitParameters(recipe.parameters, out);
     visitDependencies(recipe.dependencies, out);
@@ -149,7 +134,7 @@ function visitRecipe(recipe: Recipe, out: Collector): void {
     }
 }
 
-function visitItem(item: Item, out: Collector): void {
+function visitItem(item: Item, out: FoldingRange[]): void {
     switch (item.kind) {
         case "recipe":
             visitRecipe(item, out);
@@ -158,11 +143,39 @@ function visitItem(item: Item, out: Collector): void {
         case "setting":
             visitExpression(item.value, out);
             return;
+        case "import":
+        case "module":
+            // A path is written as a string, so it goes through the same
+            // "only a triple-quoted one can span more than one line" check
+            // as any other string — see `visitExpression`'s "string" case.
+            visitExpression(item.path, out);
+            return;
         default:
-            // An alias, an import and a module declaration carry nothing
-            // that can span more than one line; an error item has nothing.
+            // An alias has only two names, neither able to span a line; an
+            // error item has nothing.
             return;
     }
+}
+
+/**
+ * Is this token the first real thing on its line — not, say, a comment
+ * trailing some code on the same line?
+ *
+ * A `Newline` always precedes the first token of the next line. So, at a
+ * line boundary the lexer inserted without one, do `Indent` and `Dedent`:
+ * both are synthetic, zero-width markers the lexer emits before looking at
+ * the new line's own first character (confirmed against the token stream a
+ * recipe body's `Dedent` produces), never something that shares a line with
+ * whatever token follows them.
+ */
+function startsOwnLine(tokens: readonly Token[], index: number): boolean {
+    const previous = tokens[index - 1];
+    return (
+        previous === undefined ||
+        previous.kind === TokenKind.Newline ||
+        previous.kind === TokenKind.Indent ||
+        previous.kind === TokenKind.Dedent
+    );
 }
 
 /**
@@ -171,23 +184,33 @@ function visitItem(item: Item, out: Collector): void {
  * next item's doc string, then discards its own span — this is the only
  * layer that still has it.
  *
- * Tokenizing again here, rather than scanning the raw text for lines that
- * start with `#`, is what keeps this correct inside a multi-line string: the
- * lexer already knows a line beginning `#` there is string content, not a
- * comment, and a text scan would not.
+ * Scanning tokens already parsed once, rather than the raw text for lines
+ * that start with `#`, is what keeps this correct inside a multi-line
+ * string: the lexer already knows a line beginning `#` there is string
+ * content, not a comment, and a text scan would not.
+ *
+ * A trailing comment — one sharing a line with code, `x := "a" # note` — is
+ * never the start of a run: `startsOwnLine` excludes it, so a comment run
+ * cannot appear to begin on a line that is actually code. It also cannot
+ * *extend* one without that check: a run only continues through a bare
+ * `Newline` directly followed by a `Comment`, which by construction always
+ * starts a fresh line.
  *
  * A run breaks on a blank line between two comments, matching the parser's
  * own rule for when a comment still documents the item below it (see
  * `skipTrivia`'s `pendingDoc` reset) — the two are meant to agree on what
  * counts as one block.
  */
-function commentRanges(source: string): FoldingRange[] {
-    const tokens = tokenize(source);
+function commentRanges(tokens: readonly Token[]): FoldingRange[] {
     const ranges: FoldingRange[] = [];
     let index = 0;
     while (index < tokens.length) {
         const first = tokens[index];
-        if (first === undefined || first.kind !== TokenKind.Comment) {
+        if (
+            first === undefined ||
+            first.kind !== TokenKind.Comment ||
+            !startsOwnLine(tokens, index)
+        ) {
             index++;
             continue;
         }
@@ -221,11 +244,16 @@ function commentRanges(source: string): FoldingRange[] {
     return ranges;
 }
 
-/** Every folding candidate in the file. */
-export function foldingRanges(ast: Justfile, source: string): FoldingRange[] {
-    const out = new Collector();
+/**
+ * Every folding candidate in the file.
+ *
+ * `tokens` is the same stream `ast` was built from — `ParseCache` keeps both
+ * for exactly this — so nothing here re-lexes the document.
+ */
+export function foldingRanges(ast: Justfile, tokens: readonly Token[]): FoldingRange[] {
+    const out: FoldingRange[] = [];
     for (const item of ast.items) {
         visitItem(item, out);
     }
-    return [...out.ranges, ...commentRanges(source)];
+    return [...out, ...commentRanges(tokens)];
 }

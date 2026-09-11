@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parse } from "../parser/parser.js";
+import { tokenize } from "../parser/lexer.js";
+import { parseTokens } from "../parser/parser.js";
 import { FoldingKind, foldingRanges } from "./ranges.js";
 
 /** Every candidate's covered text, alongside its kind when it has one. */
 function foldedText(source: string): Array<{ text: string; kind?: FoldingKind }> {
-    return foldingRanges(parse(source), source).map(({ range, kind }) => {
+    const tokens = tokenize(source);
+    return foldingRanges(parseTokens(tokens), tokens).map(({ range, kind }) => {
         const text = source.slice(range.offset, range.offset + range.length);
         return kind === undefined ? { text } : { text, kind };
     });
@@ -130,12 +132,46 @@ describe("comment blocks", () => {
         const source = 'x := """\n# not a comment\nstill not one\n"""\n';
         expect(foldedText(source).some((t) => t.kind === FoldingKind.Comment)).toBe(false);
     });
+
+    it("does not start a run from a comment trailing code on the same line", () => {
+        // A run starting here would fold from offset 0, a line that is
+        // actually `x := "a" # trailing` — code, not a comment.
+        const source = 'x := "a" # trailing\n# next\ny := "b"\n';
+        const found = foldedText(source).find((t) => t.kind === FoldingKind.Comment);
+        expect(found).toBeUndefined();
+    });
+
+    it("still folds a real run below an unrelated trailing comment", () => {
+        const source = 'x := "a" # trailing\n# one\n# two\ny := "b"\n';
+        const found = foldedText(source).find((t) => t.kind === FoldingKind.Comment);
+        expect(found?.text).toBe("# one\n# two");
+    });
+});
+
+describe("import and module paths", () => {
+    it("candidates a multi-line import path", () => {
+        const source = 'import """\n./sub\n"""\n\nbuild:\n    echo hi\n';
+        const texts = foldedText(source).map((t) => t.text);
+        expect(texts).toContain('"""\n./sub\n"""');
+    });
+
+    it("candidates a multi-line module path", () => {
+        const source = 'mod sub """\n./sub.just\n"""\n\nbuild:\n    echo hi\n';
+        const texts = foldedText(source).map((t) => t.text);
+        expect(texts).toContain('"""\n./sub.just\n"""');
+    });
+
+    it("offers nothing for a module with no path", () => {
+        const source = "mod sub\n\nbuild:\n    echo hi\n";
+        expect(() => foldedText(source)).not.toThrow();
+    });
 });
 
 describe("totality", () => {
     it("never throws, whatever the input", () => {
         for (const source of ["", "#", "(((((", "[[[[[", '"""', "```", "x := ) ] }"]) {
-            expect(() => foldingRanges(parse(source), source)).not.toThrow();
+            const tokens = tokenize(source);
+            expect(() => foldingRanges(parseTokens(tokens), tokens)).not.toThrow();
         }
     });
 });

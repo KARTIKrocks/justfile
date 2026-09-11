@@ -13,7 +13,9 @@
  */
 
 import type { Justfile } from "../parser/ast.js";
-import { parse } from "../parser/parser.js";
+import { tokenize } from "../parser/lexer.js";
+import { parseTokens } from "../parser/parser.js";
+import type { Token } from "../parser/token.js";
 import { buildModel } from "./build.js";
 import type { JustfileModel } from "./justfile.js";
 
@@ -21,6 +23,15 @@ export interface ParsedDocument {
     /** The document version this was parsed from. */
     readonly version: number;
     readonly ast: Justfile;
+    /**
+     * The token stream the tree was built from.
+     *
+     * Kept alongside the tree rather than re-derived, so a feature that needs
+     * something the tree does not keep — a comment's own span, say, which the
+     * parser discards once it becomes a doc string — can have it without
+     * lexing the document a second time.
+     */
+    readonly tokens: readonly Token[];
     /** Built on first use: the token providers only ever want the tree. */
     readonly model: JustfileModel;
 }
@@ -28,10 +39,12 @@ export interface ParsedDocument {
 class Entry implements ParsedDocument {
     readonly version: number;
     readonly ast: Justfile;
+    readonly tokens: readonly Token[];
     #model: JustfileModel | undefined;
 
-    constructor(version: number, ast: Justfile) {
+    constructor(version: number, tokens: readonly Token[], ast: Justfile) {
         this.version = version;
+        this.tokens = tokens;
         this.ast = ast;
     }
 
@@ -55,7 +68,8 @@ export class ParseCache {
         if (hit !== undefined && hit.version === version) {
             return hit;
         }
-        const entry = new Entry(version, parse(text));
+        const tokens = tokenize(text);
+        const entry = new Entry(version, tokens, parseTokens(tokens));
         this.#entries.set(key, entry);
         return entry;
     }

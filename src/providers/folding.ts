@@ -45,10 +45,13 @@ function toFoldingRange(
 export function registerFolding(context: vscode.ExtensionContext, cache: ParseCache): void {
     const provider: vscode.FoldingRangeProvider = {
         provideFoldingRanges(document) {
-            const text = document.getText();
-            const { ast } = cache.parse(document.uri.toString(), document.version, text);
+            const { ast, tokens } = cache.parse(
+                document.uri.toString(),
+                document.version,
+                document.getText(),
+            );
             const ranges: vscode.FoldingRange[] = [];
-            for (const candidate of foldingRanges(ast, text)) {
+            for (const candidate of foldingRanges(ast, tokens)) {
                 const range = toFoldingRange(document, candidate);
                 if (range !== undefined) {
                     ranges.push(range);
